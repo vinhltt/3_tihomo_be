@@ -1,0 +1,66 @@
+# Prometheus Configuration for TiHoMo Message Queue Monitoring
+# Scrapes metrics từ ExcelApi, CoreFinance, và RabbitMQ
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'tihomo-dev'
+
+# Rules files
+rule_files:
+  - "alert-rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # ExcelApi metrics
+  - job_name: 'excel-api'
+    static_configs:
+      - targets: ['host.docker.internal:7001']
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+
+  # CoreFinance metrics  
+  - job_name: 'core-finance'
+    static_configs:
+      - targets: ['host.docker.internal:7002']
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+
+  # RabbitMQ metrics (using prometheus plugin)
+  - job_name: 'rabbitmq'
+    static_configs:
+      - targets: ['rabbitmq:15692']
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+
+  # .NET runtime metrics (if enabled)
+  - job_name: 'dotnet-runtime'
+    static_configs:
+      - targets: ['host.docker.internal:7001', 'host.docker.internal:7002']
+    metrics_path: /metrics
+    scrape_interval: 60s
+    params:
+      format: ['prometheus']
+
+# Alertmanager configuration (for future expansion)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093

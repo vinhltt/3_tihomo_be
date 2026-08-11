@@ -1,0 +1,47 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <SharedGUID>17bb1df9-1a3c-471b-a2be-b4d77f6507db</SharedGUID>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <Import_RootNamespace>Shared.EntityFramework</Import_RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\BaseEntity.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\UserOwnedEntity.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\BaseResponse.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\BodyRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\FilterBodyRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\FilterDescriptor.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\FilterDetailsRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\FilterLogicalOperator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\FilterRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\GlobalVariable.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\ImageInfo.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\Pagination.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\SortDescriptor.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)BaseEfModels\TypeList.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DTOs\BaseCreateRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DTOs\BaseDTO.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DTOs\BasePaging.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DTOs\BaseTreeViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DTOs\BaseUpdateRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DTOs\BaseViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)DTOs\LoginDTO.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)EntityFrameworkUtilities\ExpressionBuilder.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)EntityFrameworkUtilities\ExpressionUtils.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)EntityFrameworkUtilities\QueryableExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Enums\FilterType.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Enums\SortDirection.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Extensions\ModelBuilderExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Services\DatabaseMigrationService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Services\MigrationResult.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.0" />
+    <PackageReference Include="Npgsql" Version="8.0.3" />
+  </ItemGroup>
+</Project>

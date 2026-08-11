@@ -1,0 +1,74 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test Framework -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- Assertions & Fakes -->
+    <PackageReference Include="FluentAssertions" Version="8.2.0" />
+    <PackageReference Include="Bogus" Version="35.6.3" />
+
+    <!-- Integration Testing -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.0" />
+
+    <!-- Logging for Tests -->
+    <PackageReference Include="Xunit.Extensions.Logging" Version="1.0.0" />
+
+    <!-- Code Coverage -->
+    <PackageReference Include="coverlet.collector" Version="6.0.4">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="FluentAssertions" />
+    <Using Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <Using Include="Microsoft.AspNetCore.Hosting" />
+    <Using Include="Microsoft.EntityFrameworkCore" />
+    <Using Include="Microsoft.Extensions.Configuration" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.Logging" />
+    <Using Include="System.Net.Http.Json" />
+    <Using Include="CoreFinance.Domain.Entities" />
+    <Using Include="CoreFinance.Domain.Enums" />
+    <Using Include="CoreFinance.Application.DTOs.Account" />
+    <Using Include="CoreFinance.Application.DTOs.Transaction" />
+    <Using Include="CoreFinance.Infrastructure" />
+    <Using Include="Shared.EntityFramework.DTOs" />
+    <Using Include="Shared.EntityFramework.BaseEfModels" />
+    <Using Include="Shared.EntityFramework.Enums" />
+    <Using Include="Xunit.Abstractions" />
+    <Using Include="Xunit.Extensions.Logging" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Project References -->
+    <ProjectReference Include="..\CoreFinance.Api\CoreFinance.Api.csproj" />
+    <ProjectReference Include="..\CoreFinance.Application\CoreFinance.Application.csproj" />
+    <ProjectReference Include="..\CoreFinance.Domain\CoreFinance.Domain.csproj" />
+    <ProjectReference Include="..\CoreFinance.Infrastructure\CoreFinance.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Test configuration files -->
+    <Content Include="appsettings.Testing.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <SharedGUID>aa71f6eb-f315-450b-816e-4f4fad3aec1f</SharedGUID>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <Import_RootNamespace>Shared.Contracts</Import_RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)Attributes\SqlParametterAttribute.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ConfigurationOptions\CorsOptions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)ConfigurationOptions\DbSettingOptions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Constants\CommonConst.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Constants\ConstantCommon.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Constants\EnvironmentConst.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Exceptions\CreateFailedException.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Exceptions\EntityNotFoundException.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Exceptions\UpdateFailedException.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Extensions\CollectionExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Extensions\ProxyExtension.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Utilities\DictionaryHelper.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Utilities\FileHelpper.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Utilities\MathUtils.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Utilities\ParserHelper.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Utilities\StringHelper.cs" />
+  </ItemGroup>
+</Project>

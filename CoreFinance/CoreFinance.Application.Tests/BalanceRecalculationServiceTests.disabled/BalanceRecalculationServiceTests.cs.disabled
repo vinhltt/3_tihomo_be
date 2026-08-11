@@ -1,0 +1,73 @@
+using AutoMapper;
+using Bogus;
+using CoreFinance.Application.Tests.Helpers;
+using CoreFinance.Domain.BaseRepositories;
+using CoreFinance.Domain.Entities;
+using CoreFinance.Domain.Enums;
+using CoreFinance.Domain.Repositories;
+using Microsoft.Extensions.Logging;
+using Moq;
+
+namespace CoreFinance.Application.Tests.BalanceRecalculationServiceTests;
+
+/// <summary>
+///     Base partial class for BalanceRecalculationService test classes (EN)<br/>
+///     Lớp partial cơ sở cho các lớp kiểm thử BalanceRecalculationService (VI)
+/// </summary>
+public partial class BalanceRecalculationServiceTests
+{
+    private readonly IMapper _mapper = TestHelpers.CreateMapper();
+
+    /// <summary>
+    ///     Creates a faker for generating test Account data (EN)<br/>
+    ///     Tạo faker để sinh dữ liệu Account kiểm thử (VI)
+    /// </summary>
+    protected Faker<Account> CreateAccountFaker(Guid? userId = null)
+    {
+        return new Faker<Account>()
+            .RuleFor(a => a.Id, _ => Guid.CreateVersion7())
+            .RuleFor(a => a.UserId, _ => userId ?? Guid.CreateVersion7())
+            .RuleFor(a => a.Name, f => f.Finance.AccountName())
+            .RuleFor(a => a.Type, f => AccountType.Bank)
+            .RuleFor(a => a.Currency, _ => "USD")
+            .RuleFor(a => a.InitialBalance, _ => 1000m)
+            .RuleFor(a => a.CurrentBalance, _ => 1000m)
+            .RuleFor(a => a.IsActive, _ => true)
+            .RuleFor(a => a.LastSync, _ => null)
+            .RuleFor(a => a.CreditLimit, _ => null);
+    }
+
+    /// <summary>
+    ///     Creates a faker for generating test Transaction data (EN)<br/>
+    ///     Tạo faker để sinh dữ liệu Transaction kiểm thử (VI)
+    /// </summary>
+    protected Faker<Transaction> CreateTransactionFaker(Guid accountId, Guid? userId = null)
+    {
+        return new Faker<Transaction>()
+            .RuleFor(t => t.Id, _ => Guid.CreateVersion7())
+            .RuleFor(t => t.UserId, _ => userId ?? Guid.CreateVersion7())
+            .RuleFor(t => t.AccountId, _ => accountId)
+            .RuleFor(t => t.TransactionDate, f => f.Date.Recent(30))
+            .RuleFor(t => t.RevenueAmount, _ => 0m)
+            .RuleFor(t => t.SpentAmount, _ => 0m)
+            .RuleFor(t => t.Description, f => f.Lorem.Sentence())
+            .RuleFor(t => t.Balance, _ => 0m)
+            .RuleFor(t => t.CategoryType, _ => CategoryType.Other);
+    }
+
+    /// <summary>
+    ///     Creates mock repositories and logger for testing (EN)<br/>
+    ///     Tạo mock repositories và logger để kiểm thử (VI)
+    /// </summary>
+    protected (Mock<IBaseRepository<Account, Guid>> accountRepo,
+               Mock<ITransactionRepository> transactionRepo,
+               Mock<ILogger<Services.BalanceRecalculationService>> logger)
+        CreateMocks()
+    {
+        var accountRepoMock = new Mock<IBaseRepository<Account, Guid>>();
+        var transactionRepoMock = new Mock<ITransactionRepository>();
+        var loggerMock = new Mock<ILogger<Services.BalanceRecalculationService>>();
+
+        return (accountRepoMock, transactionRepoMock, loggerMock);
+    }
+}

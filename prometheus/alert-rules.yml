@@ -1,0 +1,115 @@
+# Prometheus Alert Rules for TiHoMo Message Queue Monitoring
+# Defines critical thresholds cho message processing performance
+
+groups:
+  - name: tihomo-message-queue-alerts
+    rules:
+      # High Message Processing Latency
+      - alert: HighMessageProcessingLatency
+        expr: histogram_quantile(0.95, rate(message_processing_duration_seconds_bucket[5m])) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: message-queue
+          team: backend
+        annotations:
+          summary: "High message processing latency detected"
+          description: "95th percentile message processing latency is {{ $value }}s, which exceeds 100ms threshold"
+          runbook_url: "https://docs.tihomo.com/runbooks/message-latency"
+
+      # Message Processing Error Rate
+      - alert: MessageProcessingErrors  
+        expr: rate(message_processing_errors_total[5m]) > 0.05
+        for: 1m
+        labels:
+          severity: critical
+          service: message-queue
+          team: backend
+        annotations:
+          summary: "High message processing error rate"
+          description: "Message processing error rate is {{ $value }} errors/second (>5%)"
+          runbook_url: "https://docs.tihomo.com/runbooks/message-errors"
+
+      # RabbitMQ Queue Backlog
+      - alert: RabbitMQQueueBacklog
+        expr: rabbitmq_queue_messages > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: rabbitmq
+          team: infrastructure
+        annotations:
+          summary: "RabbitMQ queue backlog detected"
+          description: "Queue {{ $labels.queue }} has {{ $value }} unprocessed messages"
+          runbook_url: "https://docs.tihomo.com/runbooks/queue-backlog"
+
+      # Service Availability
+      - alert: ServiceUnavailable
+        expr: up{job=~"excel-api|core-finance"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Service unavailable"
+          description: "Service {{ $labels.job }} is down"
+          runbook_url: "https://docs.tihomo.com/runbooks/service-down"
+
+      # Database Connection Issues
+      - alert: DatabaseConnectionFailure
+        expr: increase(database_connection_errors_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          service: database
+          team: backend
+        annotations:
+          summary: "Database connection failures detected"
+          description: "{{ $value }} database connection errors in the last 5 minutes"
+
+      # Excel Processing Failures
+      - alert: ExcelProcessingFailures
+        expr: rate(excel_processing_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: excel-api
+          team: backend
+        annotations:
+          summary: "High Excel processing failure rate"
+          description: "Excel processing failure rate is {{ $value }} failures/second"
+
+  - name: tihomo-performance-alerts
+    rules:
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_seconds_total[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% for {{ $labels.job }}"
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: (process_resident_memory_bytes / (1024*1024*1024)) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "High memory usage detected"  
+          description: "Memory usage is {{ $value }}GB for {{ $labels.job }}"
+
+      # Slow HTTP Requests
+      - alert: SlowHttpRequests
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1.0
+        for: 3m
+        labels:
+          severity: warning
+          service: api
+        annotations:
+          summary: "Slow HTTP requests detected"
+          description: "95th percentile HTTP request duration is {{ $value }}s"

@@ -1,0 +1,39 @@
+# Grafana Datasources Configuration
+# Auto-provisions Loki và Prometheus datasources for TiHoMo monitoring
+
+apiVersion: 1
+
+datasources:
+  # Loki datasource for log aggregation
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    uid: loki-uid
+    isDefault: false
+    version: 1
+    editable: true
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - datasourceUid: prometheus-uid
+          matcherRegex: "CorrelationId: ([\\w-]+)"
+          name: CorrelationId
+          url: "$${__value.raw}"
+
+  # Prometheus datasource for metrics
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: prometheus-uid
+    isDefault: true
+    version: 1
+    editable: true
+    jsonData:
+      httpMethod: POST
+      queryTimeout: 60s
+      timeInterval: 15s
+      exemplarTraceIdDestinations:
+        - datasourceUid: loki-uid
+          name: CorrelationId

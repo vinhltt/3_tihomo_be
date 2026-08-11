@@ -1,0 +1,17 @@
+services:
+  corefinance-postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: corefinance_user
+      POSTGRES_PASSWORD: corefinance_pass
+      POSTGRES_DB: corefinance
+    ports:
+      - "5433:5432"
+    volumes:
+      - corefinance_pgdata:/var/lib/postgresql/data
+    networks:
+      - default
+
+volumes:
+  corefinance_pgdata: 

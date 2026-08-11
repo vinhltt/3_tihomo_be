@@ -1,0 +1,73 @@
+# Environment & secrets
+.env*
+!.env.template
+!.env.example
+*.key
+*.pem
+*.pfx
+
+# Logs
+*.log*
+[Ll]og/
+[Ll]ogs/
+
+# .NET build results
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+artifacts/
+
+# NuGet
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nuget.props
+*.nuget.targets
+
+# IDE
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.sln.iml
+*.userprefs
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# Runtime data mounted by docker-compose
+postgres/data/
+rabbitmq/data/
+grafana/data/
+loki/data/
+prometheus/data/
+
+# SQL Server files
+*.mdf
+*.ldf
+*.ndf
+
+# Misc
+[Tt]emp/
+~$*
+*~
+.DS_Store
+Thumbs.db
