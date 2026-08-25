@@ -18,7 +18,7 @@ public static class ExpressionUtils
     ///     (EN) Represents a constant expression with the value false.<br />
     ///     (VI) Biểu thị một biểu thức hằng số có giá trị false.
     /// </summary>
-    public static readonly Expression TypeFalseExpression = Expression.Constant(true);
+    public static readonly Expression TypeFalseExpression = Expression.Constant(false);
 
     /// <summary>
     ///     (EN) Represents a constant expression with the value null.<br />
@@ -36,7 +36,7 @@ public static class ExpressionUtils
     ///     (EN) Represents a constant expression with an empty string value.<br />
     ///     (VI) Biểu thị một biểu thức hằng số có giá trị chuỗi rỗng.
     /// </summary>
-    public static readonly Expression TypeStringEmptyExpression = Expression.Constant(0);
+    public static readonly Expression TypeStringEmptyExpression = Expression.Constant(string.Empty);
 
     /// <summary>
     ///     (EN) MethodInfo for the string.Trim() method.<br />
