@@ -44,6 +44,16 @@ public class TransactionService(
                                      && (e.Description.ToLower().Contains(request.SearchValue.ToLower())
                                          || e.CategorySummary!.ToLower().Contains(request.SearchValue.ToLower())));
 
+        // Clamp pageIndex: ToPagingAsync throws when the page is past the end. Count after Filter, which it applies internally.
+        var total = await query.Filter(request.Filter).CountAsync();
+        var pageSize = Math.Max(1, request.Pagination?.PageSize ?? 10);
+        var lastPage = total > 0 ? (int)Math.Ceiling(total / (double)pageSize) : 1;
+        request.Pagination = new Pagination
+        {
+            PageIndex = Math.Clamp(request.Pagination?.PageIndex ?? 1, 1, lastPage),
+            PageSize = pageSize
+        };
+
         return await query.ToPagingAsync(request);
     }
 

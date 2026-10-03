@@ -3,6 +3,7 @@ using Bogus;
 using CoreFinance.Application.Mapper;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
+using Microsoft.Extensions.Logging.Abstractions;
 using MockQueryable;
 
 namespace CoreFinance.Application.Tests.Helpers;
@@ -23,7 +24,7 @@ public static class TestHelpers
     /// </returns>
     public static IMapper CreateMapper()
     {
-        var config = new MapperConfiguration(cfg => { cfg.AddProfile<AutoMapperProfile>(); });
+        var config = new MapperConfiguration(cfg => { cfg.AddProfile<AutoMapperProfile>(); }, NullLoggerFactory.Instance);
         return config.CreateMapper();
     }
 
