@@ -64,7 +64,7 @@ public static class GeneralServiceExtension
         // FluentValidation
 
         // AutoMapper
-        builder.Services.AddAutoMapper(typeof(AutoMapperProfile).Assembly);
+        builder.Services.AddAutoMapper(_ => { }, typeof(AutoMapperProfile).Assembly);
 
         builder.Services.AddDistributedMemoryCache();
         builder.Services.AddControllers()
