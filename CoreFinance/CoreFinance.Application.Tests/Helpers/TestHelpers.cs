@@ -51,7 +51,7 @@ public static class TestHelpers
             .RuleFor(a => a.InitialBalance, f => f.Finance.Amount())
             .RuleFor(a => a.CurrentBalance, f => f.Finance.Amount())
             .RuleFor(a => a.IsActive, f => f.Random.Bool());
-        return faker.Generate(count).AsQueryable().BuildMock();
+        return faker.Generate(count).BuildMock();
     }
 
     /// <summary>
@@ -88,7 +88,7 @@ public static class TestHelpers
             .RuleFor(et => et.CreatedAt, f => f.Date.Past(2))
             .RuleFor(et => et.UpdatedAt, f => f.Date.Recent());
         var result = faker.Generate(count);
-        return result.AsQueryable().BuildMock();
+        return result.BuildMock();
     }
 
     /// <summary>
@@ -124,7 +124,7 @@ public static class TestHelpers
             .RuleFor(rt => rt.DaysInAdvance, f => f.Random.Int(7, 90))
             .RuleFor(rt => rt.CreatedAt, f => f.Date.Past(2))
             .RuleFor(rt => rt.UpdatedAt, f => f.Date.Recent());
-        return faker.Generate(count).AsQueryable().BuildMock();
+        return faker.Generate(count).BuildMock();
     }
 
     /// <summary>
@@ -170,6 +170,6 @@ public static class TestHelpers
             .RuleFor(t => t.UpdatedAt, f => f.Date.Recent())
             .RuleFor(t => t.CreateBy, f => f.Person.UserName)
             .RuleFor(t => t.UpdateBy, f => f.Person.UserName);
-        return faker.Generate(count).AsQueryable().BuildMock();
+        return faker.Generate(count).BuildMock();
     }
 }

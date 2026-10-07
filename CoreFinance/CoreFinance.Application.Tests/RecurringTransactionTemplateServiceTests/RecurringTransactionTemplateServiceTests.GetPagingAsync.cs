@@ -34,7 +34,7 @@ public partial class RecurringTransactionTemplateServiceTests
         var pageSize = 2;
         var pageIndex = 1;
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -91,7 +91,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -142,7 +142,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -192,7 +192,7 @@ public partial class RecurringTransactionTemplateServiceTests
             new() { Id = Guid.CreateVersion7(), Name = "Template 3", Description = "Description 3", Category = "Transport" }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -245,7 +245,7 @@ public partial class RecurringTransactionTemplateServiceTests
                 Id = Guid.CreateVersion7(), Name = "Another Template", Description = "TEST Description",
                 Category = "TEST Category"
             }
-        }.AsQueryable().BuildMock();
+        }.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -288,7 +288,7 @@ public partial class RecurringTransactionTemplateServiceTests
                 Id = Guid.CreateVersion7(), Name = "Template 2", Description = "Description 2", Category = "Entertainment"
             }
         };
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -324,7 +324,7 @@ public partial class RecurringTransactionTemplateServiceTests
     public async Task GetPagingAsync_ShouldHandleRepositoryReturningNoData()
     {
         // Arrange
-        var emptyTemplates = new List<RecurringTransactionTemplate>().AsQueryable().BuildMock();
+        var emptyTemplates = new List<RecurringTransactionTemplate>().BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -370,7 +370,7 @@ public partial class RecurringTransactionTemplateServiceTests
                 Id = Guid.CreateVersion7(), Name = "Template 2", Description = "Description 2", Category = "Entertainment"
             }
         };
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -415,7 +415,7 @@ public partial class RecurringTransactionTemplateServiceTests
                 Id = Guid.CreateVersion7(), Name = "Template 2", Description = "Description 2", Category = "Entertainment"
             }
         };
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())

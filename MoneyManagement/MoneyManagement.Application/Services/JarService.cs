@@ -490,7 +490,7 @@ public class JarService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<JarServi
         }
     }
 
-    public async Task<JarResponseDto> CreateJarAsync(CreateJarRequestDto request)
+    public async Task<JarResponseDto> CreateJarAsync(CreateJarRequestDto request, Guid? userId)
     {
         try
         {
@@ -512,7 +512,10 @@ public class JarService(IUnitOfWork unitOfWork, IMapper mapper, ILogger<JarServi
                 Balance = 0,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
+                UpdatedAt = DateTime.UtcNow,
+                // Owner stamp: BaseRepository reads filter on CreateBy == NameIdentifier claim
+                UserId = userId,
+                CreateBy = userId?.ToString()
             };
 
             await unitOfWork.Repository<Jar, Guid>().CreateAsync(jar);

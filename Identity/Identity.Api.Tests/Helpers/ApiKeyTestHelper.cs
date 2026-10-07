@@ -1,9 +1,8 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using Identity.Application.DTOs.ApiKey;
-using Identity.Application.DTOs.Auth;
-using Identity.Application.Interfaces;
+using Identity.Application.Common.Interfaces;
+using Identity.Contracts;
 using Identity.Domain.Entities;
 using Identity.Infrastructure.Data;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,8 +44,7 @@ public class ApiKeyTestHelper
             Email = email,
             Username = username,
             Name = "Test User",
-            FirstName = "Test",
-            LastName = "User",
+            FullName = "Test User",
             PasswordHash = "test_hash",
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
@@ -64,14 +62,14 @@ public class ApiKeyTestHelper
     ///     Generate JWT token for test user (EN)<br/>
     ///     Tạo JWT token cho test user (VI)
     /// </summary>
-    public async Task<string> GenerateJwtTokenAsync(User user)
+    public Task<string> GenerateJwtTokenAsync(User user)
     {
         using var scope = _serviceProvider.CreateScope();
         var jwtService = scope.ServiceProvider.GetRequiredService<IJwtService>();
         
-        var token = await jwtService.GenerateTokenAsync(user);
+        var token = jwtService.GenerateAccessToken(user);
         _logger.LogInformation("Generated JWT token for user: {UserId}", user.Id);
-        return token;
+        return Task.FromResult(token);
     }
 
     #endregion
@@ -93,17 +91,15 @@ public class ApiKeyTestHelper
         {
             Name = name,
             Description = description ?? "Test API key for integration testing",
-            Scopes = scopes ?? new[] { "read", "write" },
+            Scopes = (scopes ?? new[] { "read", "write" }).ToList(),
             ExpiresAt = expiresAt ?? DateTime.UtcNow.AddDays(30),
-            RateLimitPerMinute = 100,
-            DailyUsageQuota = 10000,
-            AllowedIpAddresses = new[] { "127.0.0.1", "::1" }
+            RateLimitPerMinute = 100
         };
 
         // Set JWT authorization
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwtToken);
 
-        var response = await _httpClient.PostAsync("/api/ApiKeys", CreateJsonContent(request));
+        var response = await _httpClient.PostAsync("/api/v1/api-keys", CreateJsonContent(request));
         
         if (!response.IsSuccessStatusCode)
         {
@@ -129,17 +125,15 @@ public class ApiKeyTestHelper
         string? description = null)
     {
         using var scope = _serviceProvider.CreateScope();
-        var apiKeyService = scope.ServiceProvider.GetRequiredService<IApiKeyService>();
+        var apiKeyService = scope.ServiceProvider.GetRequiredService<IEnhancedApiKeyService>();
 
         var request = new CreateApiKeyRequest
         {
             Name = name,
             Description = description ?? "Test API key created directly",
-            Scopes = new[] { "read", "write" },
+            Scopes = ["read", "write"],
             ExpiresAt = DateTime.UtcNow.AddDays(30),
-            RateLimitPerMinute = 100,
-            DailyUsageQuota = 10000,
-            AllowedIpAddresses = new[] { "127.0.0.1", "::1" }
+            RateLimitPerMinute = 100
         };
 
         var result = await apiKeyService.CreateApiKeyAsync(userId, request);
@@ -154,13 +148,13 @@ public class ApiKeyTestHelper
     /// </summary>
     public async Task<bool> ValidateApiKeyAsync(string apiKey)
     {
-        var response = await _httpClient.PostAsync("/api/ApiKeys/validate", CreateJsonContent(apiKey));
+        var response = await _httpClient.PostAsync("/api/v1/api-keys/verify", CreateJsonContent(apiKey));
         
         if (response.IsSuccessStatusCode)
         {
             var result = await response.Content.ReadAsStringAsync();
             _logger.LogInformation("API key validation result: {Result}", result);
-            return result.Contains("\"valid\":true");
+            return result.Contains("\"isValid\":true");
         }
 
         _logger.LogWarning("API key validation failed with status: {Status}", response.StatusCode);
@@ -220,11 +214,9 @@ public class ApiKeyTestHelper
         {
             Name = $"{prefix} API Key {uniqueId}",
             Description = $"Generated test API key for testing purposes - {uniqueId}",
-            Scopes = new[] { "read", "write", "admin" },
+            Scopes = ["read", "write", "admin"],
             ExpiresAt = DateTime.UtcNow.AddDays(random.Next(7, 365)),
-            RateLimitPerMinute = random.Next(10, 1000),
-            DailyUsageQuota = random.Next(1000, 100000),
-            AllowedIpAddresses = new[] { "127.0.0.1", "192.168.1.0/24", "10.0.0.0/8" }
+            RateLimitPerMinute = random.Next(10, 1000)
         };
     }
 

@@ -2,7 +2,7 @@
 # Using multi-stage build pattern for optimized container size
 
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
 # Set working directory for the build
 WORKDIR /src
@@ -11,6 +11,7 @@ WORKDIR /src
 COPY ["ExcelApi/ExcelApi.csproj", "ExcelApi/"]
 COPY ["Shared/Shared.Contracts/Shared.Contracts.projitems", "Shared/Shared.Contracts/"]
 COPY ["Shared/Shared.Contracts/Shared.Contracts.shproj", "Shared/Shared.Contracts/"]
+COPY ["CoreFinance/CoreFinance.Contracts/Messages/UploadTransactionDataMessage.cs", "CoreFinance/CoreFinance.Contracts/Messages/"]
 
 # Restore dependencies
 RUN dotnet restore "ExcelApi/ExcelApi.csproj"
@@ -29,13 +30,13 @@ WORKDIR "/src/ExcelApi"
 RUN dotnet publish "ExcelApi.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 
 # Install curl for health checks
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
-RUN adduser --disabled-password --gecos '' appuser
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
 
 # Set working directory
 WORKDIR /app

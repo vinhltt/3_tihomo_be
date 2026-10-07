@@ -17,6 +17,10 @@ public class JarMappingProfile : Profile
             .ForMember(dest => dest.Balance, opt => opt.MapFrom(src => src.Balance))
             .ForMember(dest => dest.TargetAmount, opt => opt.MapFrom(src => src.TargetAmount));
 
+        // Jar entity to JarResponseDto mapping (JarController/JarService.CreateJarAsync return this DTO)
+        CreateMap<Jar, JarResponseDto>()
+            .ForMember(dest => dest.CurrentBalance, opt => opt.MapFrom(src => src.Balance));
+
         // CreateJarRequest to Jar entity mapping
         CreateMap<CreateJarRequest, Jar>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())

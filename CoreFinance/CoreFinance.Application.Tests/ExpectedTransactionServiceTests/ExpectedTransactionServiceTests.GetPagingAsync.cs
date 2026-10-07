@@ -42,7 +42,7 @@ public partial class ExpectedTransactionServiceTests
         var pageSize = 2;
         var pageIndex = 1;
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -88,7 +88,7 @@ public partial class ExpectedTransactionServiceTests
             new() { Id = Guid.CreateVersion7(), Description = "Different Description", Category = "Transport" }
         };
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -131,7 +131,7 @@ public partial class ExpectedTransactionServiceTests
             new() { Id = Guid.CreateVersion7(), Description = "Transaction 3", Category = "Transport" }
         };
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -172,7 +172,7 @@ public partial class ExpectedTransactionServiceTests
             new() { Id = Guid.CreateVersion7(), Description = "Test Expected Transaction One", Category = "Food" },
             new() { Id = Guid.CreateVersion7(), Description = "test expected transaction two", Category = "Entertainment" },
             new() { Id = Guid.CreateVersion7(), Description = "Another Expected Transaction", Category = "TEST Category" }
-        }.AsQueryable().BuildMock();
+        }.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -211,7 +211,7 @@ public partial class ExpectedTransactionServiceTests
             new() { Id = Guid.CreateVersion7(), Description = "Transaction 1", Category = "Food" },
             new() { Id = Guid.CreateVersion7(), Description = "Transaction 2", Category = "Entertainment" }
         };
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -246,7 +246,7 @@ public partial class ExpectedTransactionServiceTests
     public async Task GetPagingAsync_ShouldHandleRepositoryReturningNoData()
     {
         // Arrange
-        var emptyExpectedTransactions = new List<ExpectedTransaction>().AsQueryable().BuildMock();
+        var emptyExpectedTransactions = new List<ExpectedTransaction>().BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -284,7 +284,7 @@ public partial class ExpectedTransactionServiceTests
             new() { Id = Guid.CreateVersion7(), Description = "Transaction 1", Category = "Food" },
             new() { Id = Guid.CreateVersion7(), Description = "Transaction 2", Category = "Entertainment" }
         };
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -321,7 +321,7 @@ public partial class ExpectedTransactionServiceTests
             new() { Id = Guid.CreateVersion7(), Description = "Transaction 1", Category = "Food" },
             new() { Id = Guid.CreateVersion7(), Description = "Transaction 2", Category = "Entertainment" }
         };
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())

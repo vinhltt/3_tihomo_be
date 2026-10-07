@@ -31,7 +31,7 @@ public partial class TransactionServiceTests
             new() { Id = Guid.CreateVersion7(), Description = "Transfer", RevenueAmount = 0, SpentAmount = 500 }
         };
 
-        var transactionsMock = transactions.AsQueryable().BuildMock();
+        var transactionsMock = transactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities()).Returns(transactionsMock);
@@ -63,7 +63,7 @@ public partial class TransactionServiceTests
     public async Task GetAllDtoAsync_ShouldReturnEmptyList_WhenNoTransactionsExist()
     {
         // Arrange
-        var emptyTransactions = new List<Transaction>().AsQueryable().BuildMock();
+        var emptyTransactions = new List<Transaction>().BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities()).Returns(emptyTransactions);

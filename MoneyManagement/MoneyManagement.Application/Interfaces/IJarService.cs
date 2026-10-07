@@ -37,8 +37,9 @@ public interface IJarService
     ///     Tạo lọ mới một cách bất đồng bộ (VI)
     /// </summary>
     /// <param name="request">Create jar request DTO</param>
+    /// <param name="userId">Authenticated user (NameIdentifier claim); null when anonymous</param>
     /// <returns>Created jar response DTO</returns>
-    Task<JarResponseDto> CreateJarAsync(CreateJarRequestDto request);
+    Task<JarResponseDto> CreateJarAsync(CreateJarRequestDto request, Guid? userId);
 
     /// <summary>
     ///     Updates an existing jar asynchronously (EN)<br />

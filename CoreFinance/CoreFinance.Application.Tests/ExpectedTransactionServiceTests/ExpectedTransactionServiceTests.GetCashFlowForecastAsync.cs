@@ -62,7 +62,7 @@ public partial class ExpectedTransactionServiceTests
             }
         };
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -127,7 +127,7 @@ public partial class ExpectedTransactionServiceTests
             }
         };
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -184,7 +184,7 @@ public partial class ExpectedTransactionServiceTests
             }
         };
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -247,7 +247,7 @@ public partial class ExpectedTransactionServiceTests
             }
         };
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -303,7 +303,7 @@ public partial class ExpectedTransactionServiceTests
             }
         };
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -360,7 +360,7 @@ public partial class ExpectedTransactionServiceTests
             }
         };
 
-        var expectedTransactionsMock = expectedTransactions.AsQueryable().BuildMock();
+        var expectedTransactionsMock = expectedTransactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())

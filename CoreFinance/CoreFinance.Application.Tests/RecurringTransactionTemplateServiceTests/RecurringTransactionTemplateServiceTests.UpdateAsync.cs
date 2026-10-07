@@ -71,7 +71,7 @@ public partial class RecurringTransactionTemplateServiceTests
 
         var expectedTransactionRepoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         expectedTransactionRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(new List<ExpectedTransaction>().AsQueryable().BuildMock());
+            .Returns(new List<ExpectedTransaction>().BuildMock());
         expectedTransactionRepoMock.Setup(r => r.CreateAsync(It.IsAny<ExpectedTransaction>()))
             .ReturnsAsync(1); // Return 1 to indicate successful creation
 

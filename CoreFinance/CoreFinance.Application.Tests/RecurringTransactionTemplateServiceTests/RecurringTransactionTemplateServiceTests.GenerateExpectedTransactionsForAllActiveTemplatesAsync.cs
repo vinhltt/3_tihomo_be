@@ -52,7 +52,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         templateRepoMock.Setup(r => r.GetNoTrackingEntities())
@@ -60,7 +60,7 @@ public partial class RecurringTransactionTemplateServiceTests
 
         var expectedTransactionRepoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         expectedTransactionRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(new List<ExpectedTransaction>().AsQueryable().BuildMock());
+            .Returns(new List<ExpectedTransaction>().BuildMock());
 
         var transactionMock = new Mock<IDbContextTransaction>();
 
@@ -94,7 +94,7 @@ public partial class RecurringTransactionTemplateServiceTests
     public async Task GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldHandleEmptyTemplateList()
     {
         // Arrange
-        var templatesMock = new List<RecurringTransactionTemplate>().AsQueryable().BuildMock();
+        var templatesMock = new List<RecurringTransactionTemplate>().BuildMock();
 
         var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         templateRepoMock.Setup(r => r.GetNoTrackingEntities())
@@ -142,7 +142,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         templateRepoMock.Setup(r => r.GetNoTrackingEntities())
@@ -216,7 +216,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         templateRepoMock.Setup(r => r.GetNoTrackingEntities())
@@ -224,7 +224,7 @@ public partial class RecurringTransactionTemplateServiceTests
 
         var expectedTransactionRepoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         expectedTransactionRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(new List<ExpectedTransaction>().AsQueryable().BuildMock());
+            .Returns(new List<ExpectedTransaction>().BuildMock());
 
         var transactionMock = new Mock<IDbContextTransaction>();
 
@@ -270,7 +270,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         templateRepoMock.Setup(r => r.GetNoTrackingEntities())

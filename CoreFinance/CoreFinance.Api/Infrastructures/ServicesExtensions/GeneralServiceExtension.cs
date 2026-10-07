@@ -4,7 +4,7 @@ using CoreFinance.Api.Infrastructures.Swagger.SchemaFilters;
 using CoreFinance.Application.Mapper;
 using CoreFinance.Infrastructure;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Shared.Contracts.ConfigurationOptions;
 
 namespace CoreFinance.Api.Infrastructures.ServicesExtensions;
@@ -109,22 +109,10 @@ public static class GeneralServiceExtension
                 Type = SecuritySchemeType.ApiKey,
                 Scheme = "Bearer"
             });
-            c.AddSecurityRequirement(new OpenApiSecurityRequirement
+            // OpenApi 2: requirement keys are scheme references; the referenced definition carries name/location
+            c.AddSecurityRequirement(document => new OpenApiSecurityRequirement
             {
-                {
-                    new OpenApiSecurityScheme
-                    {
-                        Reference = new OpenApiReference
-                        {
-                            Type = ReferenceType.SecurityScheme,
-                            Id = "Bearer"
-                        },
-                        Scheme = "oath2",
-                        Name = "Bearer",
-                        In = ParameterLocation.Header
-                    },
-                    new List<string>()
-                }
+                [new OpenApiSecuritySchemeReference("Bearer", document)] = new List<string>()
             });
             c.SchemaFilter<EnumSchemaFilter>();
         });

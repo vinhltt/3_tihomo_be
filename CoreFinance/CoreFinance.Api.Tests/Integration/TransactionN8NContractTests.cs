@@ -1,3 +1,5 @@
+using CoreFinance.Api.Tests.Helpers;
+using System.Net.Http.Headers;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -22,6 +24,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
     public TransactionN8NContractTests(WebApplicationFactory<Program> factory, ITestOutputHelper output)
     {
         _output = output;
+        TestJwt.Configure();
         _testDatabaseName = $"TestCoreFinanceDb_TransactionN8N_{Guid.CreateVersion7():N}";
         _testUserId = Guid.CreateVersion7();
 
@@ -39,6 +42,8 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
                 services.AddDbContext<CoreFinanceDbContext>(options =>
                 {
                     options.UseInMemoryDatabase(_testDatabaseName);
+                    // The services use transactions; the InMemory provider throws on them by default
+                    options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
                     options.EnableSensitiveDataLogging();
                 });
 
@@ -66,7 +71,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
 
         // Setup API Key authentication (simulating n8n workflow)
         _testApiKey = "tihomo_n8n_workflow_api_key";
-        _client.DefaultRequestHeaders.Add("X-API-Key", _testApiKey);
+        _client.DefaultRequestHeaders.Authorization = TestJwt.Bearer(_testUserId);
 
         _output.WriteLine($"Test initialized với Account: {_testAccount!.Name}");
     }
@@ -106,7 +111,8 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
     {
         var json = JsonSerializer.Serialize(obj, new JsonSerializerOptions
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
         });
         return new StringContent(json, Encoding.UTF8, "application/json");
     }
@@ -120,7 +126,8 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         var content = await response.Content.ReadAsStringAsync();
         return JsonSerializer.Deserialize<T>(content, new JsonSerializerOptions
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
         });
     }
 
@@ -428,7 +435,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
     {
         // Arrange
         await InitializeTestAsync();
-        _client.DefaultRequestHeaders.Remove("X-API-Key");
+        _client.DefaultRequestHeaders.Authorization = null;
 
         var request = new TransactionCreateRequest
         {
@@ -456,8 +463,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
     {
         // Arrange
         await InitializeTestAsync();
-        _client.DefaultRequestHeaders.Remove("X-API-Key");
-        _client.DefaultRequestHeaders.Add("X-API-Key", "invalid_api_key_12345");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "invalid_api_key_12345");
 
         var request = new TransactionCreateRequest
         {

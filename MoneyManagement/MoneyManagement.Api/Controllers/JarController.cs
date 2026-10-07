@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using MoneyManagement.Application.DTOs.Jar;
 using MoneyManagement.Application.Interfaces;
@@ -106,7 +107,8 @@ public class JarController(IJarService jarService, ILogger<JarController> logger
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            var jar = await _jarService.CreateJarAsync(createDto);
+            var userId = Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : (Guid?)null;
+            var jar = await _jarService.CreateJarAsync(createDto, userId);
             return CreatedAtAction(nameof(GetJarById), new { id = jar.Id }, jar);
         }
         catch (InvalidOperationException ex)

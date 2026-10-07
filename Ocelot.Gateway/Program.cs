@@ -164,8 +164,7 @@ try
             .AddHttpClientInstrumentation()
             .AddRuntimeInstrumentation()
             .AddMeter(otelSettings.ServiceName)
-            .AddMeter("TiHoMo.Gateway.Auth") // Add auth metrics
-            .AddPrometheusExporter());
+            .AddMeter("TiHoMo.Gateway.Auth")); // Add auth metrics
 
     // Add OpenAPI/Swagger
     builder.Services.AddEndpointsApiExplorer();
@@ -210,8 +209,7 @@ try
     
     app.UseAuthorization();
 
-    // Note: Gateway metrics are exposed via OpenTelemetry Prometheus exporter
-    // No need for explicit MapMetrics() endpoint in Gateway
+    // Note: no metrics exporter. Baseline net9 had no scrape endpoint (/metrics 404); beta Prometheus exporter removed in THM-2
     
     // Use Ocelot for downstream routing (after local routes are handled)
     await app.UseOcelot();

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Infrastructure-free unit lane: skips Characterization cases (they need the real stack, see run-backend-characterization.sh).
+     Select explicitly (dotnet test settings option, or Visual Studio "Select Solution Wide runsettings File"); never auto-applied, so full acceptance stays unfiltered. -->
+<RunSettings>
+  <RunConfiguration>
+    <TestCaseFilter>Category!=Characterization</TestCaseFilter>
+  </RunConfiguration>
+</RunSettings>

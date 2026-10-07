@@ -1,8 +1,11 @@
 using System.Reflection;
+using System.Text;
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using MoneyManagement.Application;
 using MoneyManagement.Application.Services;
 using MoneyManagement.Infrastructure;
@@ -69,6 +72,24 @@ async Task MigrateDatabaseWithLockAsync(IHost host)
 
 var builder = WebApplication.CreateBuilder(args);
 
+// JWT issued by Identity; the repository scopes reads by the NameIdentifier claim
+var jwtSecretKey = builder.Configuration["JwtSettings:SecretKey"] ?? throw new InvalidOperationException("JWT SecretKey not configured");
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecretKey)),
+            ValidateIssuer = true,
+            ValidIssuer = builder.Configuration["JwtSettings:Issuer"] ?? throw new InvalidOperationException("JWT Issuer not configured"),
+            ValidateAudience = true,
+            ValidAudience = builder.Configuration["JwtSettings:Audience"] ?? throw new InvalidOperationException("JWT Audience not configured"),
+            ValidateLifetime = true
+        };
+    });
+builder.Services.AddAuthorization();
+
 // Add services to the container
 builder.Services.AddControllers();
 
@@ -132,9 +153,8 @@ app.UseHttpsRedirection();
 
 app.UseCors();
 
-// TODO: Add authentication middleware when ready
-// app.UseAuthentication();
-// app.UseAuthorization();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 

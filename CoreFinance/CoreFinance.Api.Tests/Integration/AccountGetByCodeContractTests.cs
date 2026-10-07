@@ -1,3 +1,5 @@
+using CoreFinance.Api.Tests.Helpers;
+using System.Net.Http.Headers;
 using System.Net;
 using System.Text.Json;
 
@@ -26,6 +28,7 @@ public class AccountGetByCodeContractTests : IClassFixture<WebApplicationFactory
     public AccountGetByCodeContractTests(WebApplicationFactory<Program> factory, ITestOutputHelper output)
     {
         _output = output;
+        TestJwt.Configure();
         _testDatabaseName = $"TestCoreFinanceDb_CodeFilter_{Guid.CreateVersion7():N}";
         _testUserId = Guid.CreateVersion7();
 
@@ -53,6 +56,8 @@ public class AccountGetByCodeContractTests : IClassFixture<WebApplicationFactory
                 services.AddDbContext<CoreFinanceDbContext>(options =>
                 {
                     options.UseInMemoryDatabase(_testDatabaseName);
+                    // The services use transactions; the InMemory provider throws on them by default
+                    options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
                     options.EnableSensitiveDataLogging();
                 });
 
@@ -80,7 +85,7 @@ public class AccountGetByCodeContractTests : IClassFixture<WebApplicationFactory
 
         // Setup API Key authentication
         _testApiKey = "tihomo_test_api_key_code_filter";
-        _client.DefaultRequestHeaders.Add("X-API-Key", _testApiKey);
+        _client.DefaultRequestHeaders.Authorization = TestJwt.Bearer(_testUserId);
 
         _output.WriteLine($"Test initialized with {context.Accounts.Count()} test accounts");
     }
@@ -173,7 +178,8 @@ public class AccountGetByCodeContractTests : IClassFixture<WebApplicationFactory
         var content = await response.Content.ReadAsStringAsync();
         return JsonSerializer.Deserialize<T>(content, new JsonSerializerOptions
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
         });
     }
 
@@ -243,7 +249,7 @@ public class AccountGetByCodeContractTests : IClassFixture<WebApplicationFactory
     {
         // Arrange
         await InitializeTestAsync();
-        _client.DefaultRequestHeaders.Remove("X-API-Key");
+        _client.DefaultRequestHeaders.Authorization = null;
         var requestUri = "/api/Account?filter=code eq 'techcombank_debit'";
 
         // Act

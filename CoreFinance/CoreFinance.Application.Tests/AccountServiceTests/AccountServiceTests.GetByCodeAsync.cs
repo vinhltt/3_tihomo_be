@@ -45,7 +45,7 @@ public partial class AccountServiceTests
             UserId = userId
         };
 
-        var accounts = new List<Account> { account }.AsQueryable().BuildMock();
+        var accounts = new List<Account> { account }.BuildMock();
 
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
@@ -76,7 +76,7 @@ public partial class AccountServiceTests
         var repositoryMock = new Mock<IBaseRepository<Account, Guid>>();
 
         var nonExistentCode = "non_existent_code";
-        var accounts = new List<Account>().AsQueryable().BuildMock();
+        var accounts = new List<Account>().BuildMock();
 
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
@@ -116,7 +116,7 @@ public partial class AccountServiceTests
             UserId = Guid.CreateVersion7()
         };
 
-        var accounts = new List<Account> { account }.AsQueryable().BuildMock();
+        var accounts = new List<Account> { account }.BuildMock();
 
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
@@ -156,7 +156,7 @@ public partial class AccountServiceTests
             UserId = Guid.CreateVersion7()
         };
 
-        var accounts = new List<Account> { inactiveAccount }.AsQueryable().BuildMock();
+        var accounts = new List<Account> { inactiveAccount }.BuildMock();
 
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
@@ -209,7 +209,7 @@ public partial class AccountServiceTests
             UserId = Guid.CreateVersion7()
         };
 
-        var accounts = new List<Account> { account1, account2 }.AsQueryable().BuildMock();
+        var accounts = new List<Account> { account1, account2 }.BuildMock();
 
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
@@ -239,7 +239,7 @@ public partial class AccountServiceTests
         var loggerMock = new Mock<ILogger<AccountService>>();
         var repositoryMock = new Mock<IBaseRepository<Account, Guid>>();
 
-        var accounts = new List<Account>().AsQueryable().BuildMock();
+        var accounts = new List<Account>().BuildMock();
 
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
@@ -283,7 +283,7 @@ public partial class AccountServiceTests
             UserId = Guid.CreateVersion7()
         };
 
-        var accounts = new List<Account> { account }.AsQueryable().BuildMock();
+        var accounts = new List<Account> { account }.BuildMock();
 
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);

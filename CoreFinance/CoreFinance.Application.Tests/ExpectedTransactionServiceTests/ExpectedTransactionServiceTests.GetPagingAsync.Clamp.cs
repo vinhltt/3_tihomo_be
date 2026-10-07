@@ -17,7 +17,7 @@ public partial class ExpectedTransactionServiceTests
 {
     private static ExpectedTransactionService BuildPagingService(List<ExpectedTransaction> rows)
     {
-        var mock = rows.AsQueryable().BuildMock();
+        var mock = rows.BuildMock();
         var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities()).Returns(mock);
         var uow = new Mock<IUnitOfWork>();

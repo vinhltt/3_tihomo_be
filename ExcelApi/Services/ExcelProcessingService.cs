@@ -1,4 +1,5 @@
 using System.Data;
+using CoreFinance.Contracts.Messages;
 using ExcelApi.Messages;
 using ExcelApi.Models;
 using ExcelDataReader;

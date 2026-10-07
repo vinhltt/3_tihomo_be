@@ -1,4 +1,4 @@
-﻿using CoreFinance.Contracts.BaseEfModels;
+﻿using Shared.EntityFramework.BaseEfModels;
 
 namespace CoreFinance.Contracts.DTOs;
 

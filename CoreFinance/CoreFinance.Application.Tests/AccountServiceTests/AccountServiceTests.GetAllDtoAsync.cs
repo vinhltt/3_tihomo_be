@@ -43,7 +43,7 @@ public partial class AccountServiceTests
             }
         };
 
-        var accountsMock = accounts.AsQueryable().BuildMock();
+        var accountsMock = accounts.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         // Assuming GetAllDtoAsync uses GetNoTrackingEntities()
@@ -80,7 +80,7 @@ public partial class AccountServiceTests
     public async Task GetAllDtoAsync_ShouldReturnEmptyList_WhenNoAccountsExist()
     {
         // Arrange
-        var emptyAccounts = new List<Account>().AsQueryable().BuildMock();
+        var emptyAccounts = new List<Account>().BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         // Assuming GetAllDtoAsync uses GetNoTrackingEntities()

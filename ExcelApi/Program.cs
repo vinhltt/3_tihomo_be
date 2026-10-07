@@ -5,7 +5,7 @@ using ExcelApi.Middleware;
 using ExcelApi.Services;
 using MassTransit;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -110,8 +110,7 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddRuntimeInstrumentation()
-        .AddMeter(otelSettings.ServiceName)
-        .AddPrometheusExporter());
+        .AddMeter(otelSettings.ServiceName));
 
 // Add health checks
 builder.Services.AddHealthChecks()
@@ -143,7 +142,7 @@ builder.Services.AddSwaggerGen(c =>
     // Map IFormFile to binary format for Swagger UI
     c.MapType<IFormFile>(() => new OpenApiSchema
     {
-        Type = "string",
+        Type = JsonSchemaType.String,
         Format = "binary"
     });
 });
@@ -174,7 +173,7 @@ app.UseAuthorization();
 // Add health checks endpoint
 app.MapHealthChecks("/health");
 
-// Note: Metrics are exported via OpenTelemetry Prometheus exporter
+// Note: no metrics exporter. Baseline net9 had no scrape endpoint (/metrics 404); beta Prometheus exporter removed in THM-2
 
 app.MapControllers();
 
