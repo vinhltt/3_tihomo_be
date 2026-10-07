@@ -55,33 +55,3 @@ public class MessageQueueHealthCheck
     public string ServiceName { get; set; } = string.Empty;
     public string Environment { get; set; } = string.Empty;
 }
-
-/// <summary>
-///     Message được publish khi ExcelApi hoàn thành extract transaction data từ Excel file
-/// </summary>
-public class UploadTransactionDataMessage
-{
-    /// <summary>
-    ///     Correlation ID để tracking request (EN)<br />
-    ///     Correlation ID để tracking request (VI)
-    /// </summary>
-    public Guid CorrelationId { get; set; }
-
-    /// <summary>
-    ///     Tên file Excel được upload (EN)<br />
-    ///     Tên file Excel được upload (VI)
-    /// </summary>
-    public string FileName { get; set; } = string.Empty;
-
-    /// <summary>
-    ///     Thời gian upload (EN)<br />
-    ///     Thời gian upload (VI)
-    /// </summary>
-    public DateTime UploadedAt { get; set; }
-
-    /// <summary>
-    ///     Danh sách transaction data được extract từ Excel (EN)<br />
-    ///     Danh sách transaction data được extract từ Excel (VI)
-    /// </summary>
-    public List<TransactionDataRow> TransactionData { get; set; } = new();
-}

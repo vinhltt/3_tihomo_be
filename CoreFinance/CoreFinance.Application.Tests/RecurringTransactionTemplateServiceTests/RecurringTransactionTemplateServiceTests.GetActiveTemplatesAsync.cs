@@ -55,7 +55,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -109,7 +109,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -152,7 +152,7 @@ public partial class RecurringTransactionTemplateServiceTests
             }
         };
 
-        var templatesMock = templates.AsQueryable().BuildMock();
+        var templatesMock = templates.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -182,7 +182,7 @@ public partial class RecurringTransactionTemplateServiceTests
     {
         // Arrange
         var userId = Guid.CreateVersion7();
-        var templatesMock = new List<RecurringTransactionTemplate>().AsQueryable().BuildMock();
+        var templatesMock = new List<RecurringTransactionTemplate>().BuildMock();
 
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())

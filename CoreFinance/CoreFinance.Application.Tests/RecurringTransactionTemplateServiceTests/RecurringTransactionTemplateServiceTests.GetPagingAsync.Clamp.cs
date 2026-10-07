@@ -17,7 +17,7 @@ public partial class RecurringTransactionTemplateServiceTests
 {
     private static RecurringTransactionTemplateService BuildPagingService(List<RecurringTransactionTemplate> rows)
     {
-        var mock = rows.AsQueryable().BuildMock();
+        var mock = rows.BuildMock();
         var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities()).Returns(mock);
         var uow = new Mock<IUnitOfWork>();

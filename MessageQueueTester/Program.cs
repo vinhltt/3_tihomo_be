@@ -1,19 +1,19 @@
+using CoreFinance.Contracts.Messages;
 using MassTransit;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
-using Shared.Contracts;
 
 namespace MessageQueueTester;
 
 /// <summary>
-/// Simple console application to test message queue functionality
-/// Ứng dụng console đơn giản để test chức năng message queue
+/// Simple console application to test in-memory message publishing (no broker, no consumer)<br/>
+/// Ứng dụng console đơn giản để test publish message qua in-memory bus (không broker, không consumer)
 /// </summary>
 class Program
 {
-    static async Task Main(string[] args)
+    /// <returns>0 when the message was published and the bus stopped cleanly; 1 otherwise</returns>
+    static async Task<int> Main(string[] args)
     {
         // Configure Serilog
         Log.Logger = new LoggerConfiguration()
@@ -22,25 +22,26 @@ class Program
             .Enrich.WithProperty("Application", "MessageQueueTester")
             .CreateLogger();
 
+        ServiceProvider? serviceProvider = null;
+        IBusControl? bus = null;
         try
         {
             Console.WriteLine("🚀 Starting Message Queue Test...");
-            
+
             var services = new ServiceCollection();
             ConfigureServices(services);
-            
-            var serviceProvider = services.BuildServiceProvider();
-            
-            // Test message publishing
-            var publisher = serviceProvider.GetRequiredService<IPublishEndpoint>();
-            var correlationService = serviceProvider.GetRequiredService<ICorrelationContextService>();
-            
-            // Set correlation context
-            correlationService.SetCorrelationId(Guid.CreateVersion7());
-            
+            serviceProvider = services.BuildServiceProvider();
+
+            // ServiceCollection (no Generic Host) does not start the bus: own the lifecycle here
+            bus = serviceProvider.GetRequiredService<IBusControl>();
+            await bus.StartAsync();
+
+            using var scope = serviceProvider.CreateScope();
+            var publisher = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+
             var testMessage = new UploadTransactionDataMessage
             {
-                CorrelationId = correlationService.CorrelationId,
+                CorrelationId = Guid.CreateVersion7(),
                 FileName = "test-file.xlsx",
                 UploadedAt = DateTime.UtcNow,
                 TransactionData = new List<TransactionDataRow>
@@ -55,38 +56,44 @@ class Program
                     new TransactionDataRow
                     {
                         TransactionDate = DateTime.Today.AddDays(-1),
-                        Description = "Test Transaction 2", 
+                        Description = "Test Transaction 2",
                         Amount = -50.25m,
                         Reference = "REF002"
                     }
                 }
             };
-            
-            Log.Information("📤 Publishing test message with CorrelationId: {CorrelationId}", 
+
+            Log.Information("📤 Publishing test message with CorrelationId: {CorrelationId}",
                 testMessage.CorrelationId);
-            
+
             await publisher.Publish(testMessage);
             Console.WriteLine("✅ Message published successfully!");
             Console.WriteLine($"📋 CorrelationId: {testMessage.CorrelationId}");
             Console.WriteLine($"📊 Transaction count: {testMessage.TransactionData.Count}");
-            
-            // Keep the application running for a bit to see if consumer picks up the message
-            Console.WriteLine("⏳ Waiting for message processing...");
-            await Task.Delay(5000);
-            
+
+            await bus.StopAsync();
+            bus = null;
+
             Console.WriteLine("✅ Message queue test completed!");
+            return 0;
         }
         catch (Exception ex)
         {
             Log.Fatal(ex, "❌ Message queue test failed");
             Console.WriteLine($"❌ Error: {ex.Message}");
+            return 1;
         }
         finally
         {
+            if (bus is not null)
+            {
+                try { await bus.StopAsync(); } catch { /* bus failed to start or already stopped */ }
+            }
+            if (serviceProvider is not null) await serviceProvider.DisposeAsync();
             Log.CloseAndFlush();
         }
     }
-    
+
     private static void ConfigureServices(IServiceCollection services)
     {
         // Add logging
@@ -95,10 +102,7 @@ class Program
             builder.ClearProviders();
             builder.AddSerilog();
         });
-        
-        // Add correlation context service
-        services.AddSingleton<ICorrelationContextService, CorrelationContextService>();
-        
+
         // Configure MassTransit with in-memory transport for testing
         services.AddMassTransit(x =>
         {

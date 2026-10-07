@@ -179,11 +179,8 @@ builder.Services.AddOpenTelemetry()
             options.RecordException = true;
             options.Filter = httpContext => !httpContext.Request.Path.StartsWithSegments("/health");
         })
-        .AddEntityFrameworkCoreInstrumentation(options =>
-        {
-            options.SetDbStatementForText = true;
-            options.SetDbStatementForStoredProcedure = true;
-        })
+        // Npgsql 10 emits native ActivitySource spans; replaces beta EF Core instrumentation
+        .AddSource("Npgsql")
         .AddHttpClientInstrumentation(options => { options.RecordException = true; })
         .AddSource(otelSettings.ServiceName)
         .AddOtlpExporter(otlpOptions =>
@@ -195,8 +192,7 @@ builder.Services.AddOpenTelemetry()
         .AddAspNetCoreInstrumentation()
         .AddHttpClientInstrumentation()
         .AddRuntimeInstrumentation()
-        .AddMeter(otelSettings.ServiceName)
-        .AddPrometheusExporter());
+        .AddMeter(otelSettings.ServiceName));
 
 // Add health checks
 builder.Services.AddHealthChecks()
@@ -269,7 +265,7 @@ app.MapHealthChecks("/health", new HealthCheckOptions
     }
 });
 
-// Note: Metrics are exported via OpenTelemetry Prometheus exporter
+// Note: no metrics exporter. Baseline net9 had no scrape endpoint (/metrics 404); beta Prometheus exporter removed in THM-2
 
 app.MapControllers();
 

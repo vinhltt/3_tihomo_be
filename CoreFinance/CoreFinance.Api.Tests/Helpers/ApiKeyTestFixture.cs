@@ -1,3 +1,8 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -6,6 +11,42 @@ using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
 
 namespace CoreFinance.Api.Tests.Helpers;
+
+/// <summary>
+///     Signs test JWTs the API accepts. CoreFinance.Api authenticates JWT only (no X-API-Key scheme). (EN)<br/>
+///     Ký JWT test mà API chấp nhận. CoreFinance.Api chỉ xác thực JWT (không có scheme X-API-Key). (VI)
+/// </summary>
+public static class TestJwt
+{
+    public const string Issuer = "test_issuer";
+    public const string Audience = "test_audience";
+    private const string SecretKey = "test_secret_key_for_testing_minimum_32_characters_long";
+
+    /// <summary>
+    ///     Program.cs reads JwtSettings while building the host, before WebApplicationFactory config overrides apply,
+    ///     so the settings must be process-level environment variables. Call before creating a factory client.
+    /// </summary>
+    public static void Configure()
+    {
+        Environment.SetEnvironmentVariable("JwtSettings__SecretKey", SecretKey);
+        Environment.SetEnvironmentVariable("JwtSettings__Issuer", Issuer);
+        Environment.SetEnvironmentVariable("JwtSettings__Audience", Audience);
+    }
+
+    public static AuthenticationHeaderValue Bearer(Guid userId)
+    {
+        var token = new JwtSecurityTokenHandler().CreateEncodedJwt(new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId.ToString())]),
+            Issuer = Issuer,
+            Audience = Audience,
+            Expires = DateTime.UtcNow.AddMinutes(30),
+            SigningCredentials = new SigningCredentials(
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SecretKey)), SecurityAlgorithms.HmacSha256)
+        });
+        return new AuthenticationHeaderValue("Bearer", token);
+    }
+}
 
 /// <summary>
 ///     Test fixture for API Key integration testing (EN)<br/>
@@ -24,6 +65,7 @@ public class ApiKeyTestFixture : IAsyncDisposable
 
     public ApiKeyTestFixture()
     {
+        TestJwt.Configure();
         TestDatabaseName = $"TestCoreFinanceDb_{Guid.CreateVersion7():N}";
         TestUserId = Guid.CreateVersion7();
         TestApiKey = "tihomo_test_api_key_12345678901234567890";
@@ -53,6 +95,8 @@ public class ApiKeyTestFixture : IAsyncDisposable
                     services.AddDbContext<CoreFinanceDbContext>(options =>
                     {
                         options.UseInMemoryDatabase(TestDatabaseName);
+                    // The services use transactions; the InMemory provider throws on them by default
+                    options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
                         options.EnableSensitiveDataLogging();
                     });
 
@@ -63,8 +107,7 @@ public class ApiKeyTestFixture : IAsyncDisposable
 
         Client = Factory.CreateClient();
         
-        // Set default API Key authentication
-        Client.DefaultRequestHeaders.Add("X-API-Key", TestApiKey);
+        Client.DefaultRequestHeaders.Authorization = TestJwt.Bearer(TestUserId);
     }
 
     /// <summary>

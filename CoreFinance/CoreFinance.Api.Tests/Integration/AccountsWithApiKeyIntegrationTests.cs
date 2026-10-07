@@ -1,3 +1,4 @@
+using CoreFinance.Api.Tests.Helpers;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -35,6 +36,7 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
     public AccountsWithApiKeyIntegrationTests(WebApplicationFactory<Program> factory, ITestOutputHelper output)
     {
         _output = output;
+        TestJwt.Configure();
         _testDatabaseName = $"TestCoreFinanceDb_{Guid.CreateVersion7():N}";
         _testUserId = Guid.CreateVersion7();
         
@@ -62,6 +64,8 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
                 services.AddDbContext<CoreFinanceDbContext>(options =>
                 {
                     options.UseInMemoryDatabase(_testDatabaseName);
+                    // The services use transactions; the InMemory provider throws on them by default
+                    options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
                     options.EnableSensitiveDataLogging();
                 });
 
@@ -93,7 +97,7 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
         
         // Setup API Key authentication (mocking the API key for this test)
         _testApiKey = "tihomo_test_api_key_12345678901234567890";
-        _client.DefaultRequestHeaders.Add("X-API-Key", _testApiKey);
+        _client.DefaultRequestHeaders.Authorization = TestJwt.Bearer(_testUserId);
         
         _output.WriteLine($"Test initialized with API Key: {_testApiKey[..20]}...");
     }
@@ -132,7 +136,8 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
     {
         var json = JsonSerializer.Serialize(obj, new JsonSerializerOptions
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
         });
         return new StringContent(json, Encoding.UTF8, "application/json");
     }
@@ -188,7 +193,8 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
         var content = await response.Content.ReadAsStringAsync();
         return JsonSerializer.Deserialize<T>(content, new JsonSerializerOptions
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
         });
     }
 
@@ -430,7 +436,7 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
         await InitializeTestAsync();
         
         // Remove API key header
-        _client.DefaultRequestHeaders.Remove("X-API-Key");
+        _client.DefaultRequestHeaders.Authorization = null;
 
         // Act & Assert - Test multiple endpoints
         var endpoints = new[]
@@ -455,8 +461,7 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
         await InitializeTestAsync();
         
         // Set invalid API key
-        _client.DefaultRequestHeaders.Remove("X-API-Key");
-        _client.DefaultRequestHeaders.Add("X-API-Key", "invalid_api_key");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "invalid_api_key");
 
         // Act
         var response = await _client.GetAsync($"/api/Account/{_testAccount!.Id}");

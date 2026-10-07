@@ -1,5 +1,5 @@
-using Microsoft.OpenApi.Any;
-using Microsoft.OpenApi.Models;
+using System.Text.Json.Nodes;
+using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace CoreFinance.Api.Infrastructures.Swagger.SchemaFilters;
@@ -26,17 +26,13 @@ public class EnumSchemaFilter : ISchemaFilter
     ///     The context for the schema filter. (EN)<br />
     ///     Ngữ cảnh cho bộ lọc schema. (VI)
     /// </param>
-    public void Apply(OpenApiSchema schema, SchemaFilterContext context)
+    public void Apply(IOpenApiSchema schema, SchemaFilterContext context)
     {
-        if (!context.Type.IsEnum) return;
+        if (!context.Type.IsEnum || schema is not OpenApiSchema concrete) return;
 
-        schema.Enum.Clear();
-
-        Enum.GetNames(context.Type)
-            .ToList()
-            .ForEach(name =>
-                schema.Enum.Add(
-                    new OpenApiString(
-                        $"{Convert.ToInt64(Enum.Parse(context.Type, name))} = {name}")));
+        concrete.Enum = Enum.GetNames(context.Type)
+            .Select(name => (JsonNode)JsonValue.Create(
+                $"{Convert.ToInt64(Enum.Parse(context.Type, name))} = {name}"))
+            .ToList();
     }
 }

@@ -2,7 +2,7 @@
 # Multi-stage build để tối ưu hóa kích thước image
 
 # Stage 1: Build stage
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
 # Set working directory
 WORKDIR /src
@@ -15,6 +15,7 @@ COPY ["Identity/Identity.Infrastructure/Identity.Infrastructure.csproj", "Identi
 COPY ["Identity/Identity.Contracts/Identity.Contracts.csproj", "Identity/Identity.Contracts/"]
 COPY ["Shared/Shared.Contracts/Shared.Contracts.projitems", "Shared/Shared.Contracts/"]
 COPY ["Shared/Shared.Contracts/Shared.Contracts.shproj", "Shared/Shared.Contracts/"]
+COPY ["Shared.EntityFramework/Shared.EntityFramework.projitems", "Shared.EntityFramework/"]
 
 # Restore dependencies
 RUN dotnet restore "Identity/Identity.Api/Identity.Api.csproj"
@@ -28,13 +29,13 @@ RUN dotnet build "Identity.Api.csproj" -c Release -o /app/build
 RUN dotnet publish "Identity.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 # Stage 2: Runtime stage
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 
 # Install curl for health checks
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
-RUN adduser --disabled-password --gecos '' appuser
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
 
 # Set working directory
 WORKDIR /app

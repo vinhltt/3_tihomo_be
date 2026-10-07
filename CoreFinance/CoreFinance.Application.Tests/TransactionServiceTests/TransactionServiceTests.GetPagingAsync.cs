@@ -32,7 +32,7 @@ public partial class TransactionServiceTests
         var pageIndex = 1;
         var orderedTransactions = transactions.OrderBy(t => t.TransactionDate).ToList();
 
-        var transactionsMock = transactions.AsQueryable().BuildMock();
+        var transactionsMock = transactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -83,7 +83,7 @@ public partial class TransactionServiceTests
         var expectedDescription = transactions[0].Description;
         var expectedTransaction = transactions.First(t => t.Description == expectedDescription);
 
-        var transactionsMock = transactions.AsQueryable().BuildMock();
+        var transactionsMock = transactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -121,10 +121,13 @@ public partial class TransactionServiceTests
     {
         // Arrange
         var transactions = TestHelpers.GenerateFakeTransactions(3).ToList();
+        // Bogus can repeat category summaries; the search value must match exactly one row for ContainSingle to be meaningful
+        for (var i = 0; i < transactions.Count; i++)
+            transactions[i].CategorySummary = $"{transactions[i].CategorySummary} #{i}-{Guid.NewGuid():N}";
         var expectedCategorySummary = transactions[0].CategorySummary;
-        var expectedTransaction = transactions.First(t => t.CategorySummary == expectedCategorySummary);
+        var expectedTransaction = transactions[0];
 
-        var transactionsMock = transactions.AsQueryable().BuildMock();
+        var transactionsMock = transactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -168,7 +171,7 @@ public partial class TransactionServiceTests
             new() { Description = "Test Transaction One", CategorySummary = "Food" },
             new() { Description = "test transaction two", CategorySummary = "Entertainment" },
             new() { Description = "Another Transaction", CategorySummary = "TEST Category" }
-        }.AsQueryable().BuildMock();
+        }.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -213,7 +216,7 @@ public partial class TransactionServiceTests
     {
         // Arrange
         var transactionsData = TestHelpers.GenerateFakeTransactions(3).ToList();
-        var transactionsMock = transactionsData.AsQueryable().BuildMock();
+        var transactionsMock = transactionsData.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -249,7 +252,7 @@ public partial class TransactionServiceTests
     public async Task GetPagingAsync_ShouldHandleRepositoryReturningNoData()
     {
         // Arrange
-        var emptyTransactions = new List<Transaction>().AsQueryable().BuildMock();
+        var emptyTransactions = new List<Transaction>().BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -295,7 +298,7 @@ public partial class TransactionServiceTests
         var transactions = TestHelpers.GenerateFakeTransactions(totalItems).ToList();
         var orderedTransactions = transactions.OrderBy(t => t.TransactionDate).ToList();
 
-        var transactionsMock = transactions.AsQueryable().BuildMock();
+        var transactionsMock = transactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -342,7 +345,7 @@ public partial class TransactionServiceTests
     {
         // Arrange
         var transactions = TestHelpers.GenerateFakeTransactions(2).ToList();
-        var transactionsMock = transactions.AsQueryable().BuildMock();
+        var transactionsMock = transactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -381,7 +384,7 @@ public partial class TransactionServiceTests
     {
         // Arrange
         var transactions = TestHelpers.GenerateFakeTransactions(2).ToList();
-        var transactionsMock = transactions.AsQueryable().BuildMock();
+        var transactionsMock = transactions.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())

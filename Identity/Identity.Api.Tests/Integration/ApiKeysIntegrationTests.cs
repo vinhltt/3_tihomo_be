@@ -3,14 +3,16 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using FluentAssertions;
-using Identity.Application.DTOs.ApiKey;
-using Identity.Application.DTOs.Auth;
+using Identity.Application.Common.Interfaces;
+using Identity.Contracts;
 using Identity.Domain.Entities;
 using Identity.Infrastructure.Data;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
@@ -38,15 +40,19 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         _output = output;
         _testDatabaseName = $"TestDb_{Guid.CreateVersion7():N}";
         
+        // Identity.Api Program.cs reads these eagerly while building the host (before ConfigureAppConfiguration overrides apply),
+        // so they must be process-level environment variables.
+        Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Testing");
+        Environment.SetEnvironmentVariable("JwtSettings__SecretKey", "test_secret_key_for_testing_minimum_32_characters_long");
+
         _factory = factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
             builder.ConfigureServices(services =>
             {
-                // Remove existing DbContext registration
-                var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<IdentityDbContext>));
-                if (descriptor != null)
-                    services.Remove(descriptor);
+                // Remove every registration of the Npgsql-configured DbContext (EF Core 9 keeps provider config in IDbContextOptionsConfiguration)
+                services.RemoveAll<DbContextOptions<IdentityDbContext>>();
+                services.RemoveAll<IDbContextOptionsConfiguration<IdentityDbContext>>();
 
                 // Add test database
                 services.AddDbContext<IdentityDbContext>(options =>
@@ -55,8 +61,6 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
                     options.EnableSensitiveDataLogging();
                 });
 
-                // Override logging for tests
-                services.AddLogging(builder => builder.AddXUnit(_output));
             });
         });
 
@@ -69,8 +73,7 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
             Email = "testuser@tihomo.local",
             Username = "testuser",
             Name = "Test User",
-            FirstName = "Test",
-            LastName = "User",
+            FullName = "Test User",
             PasswordHash = "test_hash",
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
@@ -109,20 +112,12 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
     ///     Generate JWT token for test user (EN)<br/>
     ///     Tạo JWT token cho test user (VI)
     /// </summary>
-    private async Task<string> GenerateJwtTokenAsync(Guid userId)
+    private Task<string> GenerateJwtTokenAsync(Guid userId)
     {
-        var loginRequest = new LoginRequest(
-            Username: _testUser.Email,
-            Password: "TestPassword123!"
-        );
-
-        // Mock login to get JWT token
-        // In real scenario, we'd use IJwtService directly
         using var scope = _factory.Services.CreateScope();
-        var jwtService = scope.ServiceProvider.GetRequiredService<Application.Interfaces.IJwtService>();
-        
-        var token = await jwtService.GenerateTokenAsync(_testUser);
-        return token;
+        var jwtService = scope.ServiceProvider.GetRequiredService<IJwtService>();
+
+        return Task.FromResult(jwtService.GenerateAccessToken(_testUser));
     }
 
     /// <summary>
@@ -165,18 +160,16 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         {
             Name = "Test API Key",
             Description = "Test API key for integration testing",
-            Scopes = new[] { "read", "write" },
+            Scopes = ["read", "write"],
             ExpiresAt = DateTime.UtcNow.AddDays(30),
-            RateLimitPerMinute = 100,
-            DailyUsageQuota = 10000,
-            AllowedIpAddresses = new[] { "127.0.0.1", "::1" }
+            RateLimitPerMinute = 100
         };
 
         // Act
-        var response = await _client.PostAsync("/api/ApiKeys", CreateJsonContent(request));
+        var response = await _client.PostAsync("/api/v1/api-keys", CreateJsonContent(request));
         
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
         
         var apiKeyResponse = await DeserializeResponseAsync<CreateApiKeyResponse>(response);
         apiKeyResponse.Should().NotBeNull();
@@ -200,11 +193,12 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         var request = new CreateApiKeyRequest
         {
             Name = "", // Invalid: empty name
-            Description = "Test description"
+            Description = "Test description",
+            Scopes = ["read"]
         };
 
         // Act
-        var response = await _client.PostAsync("/api/ApiKeys", CreateJsonContent(request));
+        var response = await _client.PostAsync("/api/v1/api-keys", CreateJsonContent(request));
         
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -222,28 +216,29 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         var createRequest = new CreateApiKeyRequest
         {
             Name = "Test Key for Get",
-            Description = "Test key for retrieval test"
+            Description = "Test key for retrieval test",
+            Scopes = ["read"]
         };
         
-        var createResponse = await _client.PostAsync("/api/ApiKeys", CreateJsonContent(createRequest));
+        var createResponse = await _client.PostAsync("/api/v1/api-keys", CreateJsonContent(createRequest));
         createResponse.EnsureSuccessStatusCode();
 
         // Act
-        var getResponse = await _client.GetAsync("/api/ApiKeys");
+        var getResponse = await _client.GetAsync("/api/v1/api-keys");
         
         // Assert
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         
-        var apiKeys = await DeserializeResponseAsync<List<ApiKeyInfo>>(getResponse);
+        var apiKeys = await DeserializeResponseAsync<ListApiKeysResponse>(getResponse);
         apiKeys.Should().NotBeNull();
-        apiKeys!.Should().HaveCountGreaterThan(0);
-        apiKeys.First().Name.Should().Be("Test Key for Get");
+        apiKeys!.Data.Should().HaveCountGreaterThan(0);
+        apiKeys.Data.First().Name.Should().Be("Test Key for Get");
         
-        _output.WriteLine($"Retrieved {apiKeys.Count} API keys for user");
+        _output.WriteLine($"Retrieved {apiKeys.Data.Count} API keys for user");
     }
 
     [Fact]
-    public async Task GetApiKey_WithValidId_ShouldReturnApiKeyInfo()
+    public async Task GetApiKey_WithValidId_ShouldReturnApiKeyResponse()
     {
         // Arrange
         await InitializeTestAsync();
@@ -252,19 +247,20 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         var createRequest = new CreateApiKeyRequest
         {
             Name = "Test Key for Individual Get",
-            Description = "Test key for individual retrieval"
+            Description = "Test key for individual retrieval",
+            Scopes = ["read"]
         };
         
-        var createResponse = await _client.PostAsync("/api/ApiKeys", CreateJsonContent(createRequest));
+        var createResponse = await _client.PostAsync("/api/v1/api-keys", CreateJsonContent(createRequest));
         var createdKey = await DeserializeResponseAsync<CreateApiKeyResponse>(createResponse);
 
         // Act
-        var getResponse = await _client.GetAsync($"/api/ApiKeys/{createdKey!.Id}");
+        var getResponse = await _client.GetAsync($"/api/v1/api-keys/{createdKey!.Id}");
         
         // Assert
         getResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         
-        var apiKeyInfo = await DeserializeResponseAsync<ApiKeyInfo>(getResponse);
+        var apiKeyInfo = await DeserializeResponseAsync<ApiKeyResponse>(getResponse);
         apiKeyInfo.Should().NotBeNull();
         apiKeyInfo!.Id.Should().Be(createdKey.Id);
         apiKeyInfo.Name.Should().Be("Test Key for Individual Get");
@@ -280,7 +276,7 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         var invalidId = Guid.CreateVersion7();
 
         // Act
-        var response = await _client.GetAsync($"/api/ApiKeys/{invalidId}");
+        var response = await _client.GetAsync($"/api/v1/api-keys/{invalidId}");
         
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -298,20 +294,21 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         var createRequest = new CreateApiKeyRequest
         {
             Name = "Test Key for Revocation",
-            Description = "Test key for revocation test"
+            Description = "Test key for revocation test",
+            Scopes = ["read"]
         };
         
-        var createResponse = await _client.PostAsync("/api/ApiKeys", CreateJsonContent(createRequest));
+        var createResponse = await _client.PostAsync("/api/v1/api-keys", CreateJsonContent(createRequest));
         var createdKey = await DeserializeResponseAsync<CreateApiKeyResponse>(createResponse);
 
         // Act
-        var revokeResponse = await _client.DeleteAsync($"/api/ApiKeys/{createdKey!.Id}");
+        var revokeResponse = await _client.DeleteAsync($"/api/v1/api-keys/{createdKey!.Id}");
         
         // Assert
-        revokeResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        revokeResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
         
         // Verify key is actually revoked by trying to get it
-        var getResponse = await _client.GetAsync($"/api/ApiKeys/{createdKey.Id}");
+        var getResponse = await _client.GetAsync($"/api/v1/api-keys/{createdKey.Id}");
         getResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         
         _output.WriteLine($"Successfully revoked API key: {createdKey.Id}");
@@ -325,7 +322,7 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         var invalidId = Guid.CreateVersion7();
 
         // Act
-        var response = await _client.DeleteAsync($"/api/ApiKeys/{invalidId}");
+        var response = await _client.DeleteAsync($"/api/v1/api-keys/{invalidId}");
         
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -343,41 +340,47 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         var createRequest = new CreateApiKeyRequest
         {
             Name = "Test Key for Validation",
-            Description = "Test key for validation test"
+            Description = "Test key for validation test",
+            Scopes = ["read"]
         };
         
-        var createResponse = await _client.PostAsync("/api/ApiKeys", CreateJsonContent(createRequest));
+        var createResponse = await _client.PostAsync("/api/v1/api-keys", CreateJsonContent(createRequest));
         var createdKey = await DeserializeResponseAsync<CreateApiKeyResponse>(createResponse);
 
         // Act
-        var validateResponse = await _client.PostAsync("/api/ApiKeys/validate", 
+        var validateResponse = await _client.PostAsync("/api/v1/api-keys/verify", 
             CreateJsonContent(createdKey!.ApiKey));
         
         // Assert
         validateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         
         var validationResult = await validateResponse.Content.ReadAsStringAsync();
-        validationResult.Should().Contain("\"valid\":true");
+        validationResult.Should().Contain("\"isValid\":true");
         validationResult.Should().Contain(_testUser.Id.ToString());
         
         _output.WriteLine($"API key validation successful: {createdKey.ApiKey[..20]}...");
     }
 
     [Fact]  
-    public async Task ValidateApiKey_WithInvalidKey_ShouldReturnUnauthorized()
+    public async Task ValidateApiKey_WithInvalidKey_ShouldReturnIsValidFalse()
     {
         // Arrange
         await InitializeTestAsync();
         var invalidApiKey = "tihomo_invalid_key_12345";
 
         // Act
-        var response = await _client.PostAsync("/api/ApiKeys/validate", 
+        var response = await _client.PostAsync("/api/v1/api-keys/verify", 
             CreateJsonContent(invalidApiKey));
         
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        // Contract: /verify answers 200 with IsValid=false (EnhancedApiKeysController has no 401 path)
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await DeserializeResponseAsync<VerifyApiKeyResponse>(response);
+        result.Should().NotBeNull();
+        result!.IsValid.Should().BeFalse();
+        result.UserId.Should().BeNull();
         
-        _output.WriteLine($"Unauthorized returned as expected for invalid API key");
+        _output.WriteLine("IsValid=false returned as expected for invalid API key");
     }
 
     #endregion
@@ -396,8 +399,8 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         // Act & Assert - Test multiple endpoints
         var endpoints = new[]
         {
-            "/api/ApiKeys",
-            $"/api/ApiKeys/{Guid.CreateVersion7()}"
+            "/api/v1/api-keys",
+            $"/api/v1/api-keys/{Guid.CreateVersion7()}"
         };
 
         foreach (var endpoint in endpoints)
@@ -418,7 +421,7 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "invalid_token");
 
         // Act
-        var response = await _client.GetAsync("/api/ApiKeys");
+        var response = await _client.GetAsync("/api/v1/api-keys");
         
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
@@ -440,47 +443,21 @@ public class ApiKeysIntegrationTests : IClassFixture<WebApplicationFactory<Progr
         {
             Name = "Rate Limited Key",
             Description = "Test key with rate limiting",
+            Scopes = ["read"],
             RateLimitPerMinute = 1 // Very low limit for testing
         };
 
         // Act
-        var response = await _client.PostAsync("/api/ApiKeys", CreateJsonContent(request));
+        var response = await _client.PostAsync("/api/v1/api-keys", CreateJsonContent(request));
         
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
         
         var apiKeyResponse = await DeserializeResponseAsync<CreateApiKeyResponse>(response);
         apiKeyResponse.Should().NotBeNull();
         apiKeyResponse!.RateLimitPerMinute.Should().Be(1);
         
         _output.WriteLine($"Created rate-limited API key: {apiKeyResponse.RateLimitPerMinute} req/min");
-    }
-
-    [Fact]
-    public async Task CreateApiKey_WithIPWhitelist_ShouldSetCorrectly()
-    {
-        // Arrange
-        await InitializeTestAsync();
-        
-        var allowedIps = new[] { "192.168.1.1", "10.0.0.1" };
-        var request = new CreateApiKeyRequest
-        {
-            Name = "IP Restricted Key",
-            Description = "Test key with IP restrictions",
-            AllowedIpAddresses = allowedIps
-        };
-
-        // Act
-        var response = await _client.PostAsync("/api/ApiKeys", CreateJsonContent(request));
-        
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        
-        var apiKeyResponse = await DeserializeResponseAsync<CreateApiKeyResponse>(response);
-        apiKeyResponse.Should().NotBeNull();
-        apiKeyResponse!.AllowedIpAddresses.Should().BeEquivalentTo(allowedIps);
-        
-        _output.WriteLine($"Created IP-restricted API key with {allowedIps.Length} allowed IPs");
     }
 
     #endregion

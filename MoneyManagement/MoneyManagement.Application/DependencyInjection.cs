@@ -25,7 +25,7 @@ public static class DependencyInjection
         services.AddScoped<ISharedExpenseService, SharedExpenseService>();
 
         // AutoMapper configuration
-        services.AddAutoMapper(typeof(DependencyInjection).Assembly);
+        services.AddAutoMapper(_ => { }, typeof(DependencyInjection).Assembly);
 
         // FluentValidation configuration
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);

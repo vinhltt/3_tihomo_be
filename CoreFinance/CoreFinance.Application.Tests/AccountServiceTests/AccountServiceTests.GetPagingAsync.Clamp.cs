@@ -17,7 +17,7 @@ public partial class AccountServiceTests
 {
     private static AccountService BuildPagingService(List<Account> rows)
     {
-        var mock = rows.AsQueryable().BuildMock();
+        var mock = rows.BuildMock();
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities()).Returns(mock);
         var uow = new Mock<IUnitOfWork>();

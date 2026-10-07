@@ -37,7 +37,7 @@ public partial class AccountServiceTests
         var orderedAccounts = accounts.OrderBy(a => a.Name).ToList();
         // ReSharper disable once UselessBinaryOperation
 
-        var accountsMock = accounts.AsQueryable().BuildMock();
+        var accountsMock = accounts.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -85,10 +85,12 @@ public partial class AccountServiceTests
     {
         // Arrange
         var accounts = TestHelpers.GenerateFakeAccounts(3).ToList();
+        // Bogus can repeat account names; the search value must match exactly one row for ContainSingle to be meaningful
+        for (var i = 0; i < accounts.Count; i++) accounts[i].Name = $"{accounts[i].Name} #{i}-{Guid.NewGuid():N}";
         var expectedName = accounts[0].Name;
-        var expectedAccount = accounts.First(a => a.Name == expectedName);
+        var expectedAccount = accounts[0];
 
-        var accountsMock = accounts.AsQueryable().BuildMock();
+        var accountsMock = accounts.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -130,7 +132,7 @@ public partial class AccountServiceTests
             new() { Name = "Test Account One" },
             new() { Name = "test account two" },
             new() { Name = "Another Account" }
-        }.AsQueryable().BuildMock();
+        }.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -172,7 +174,7 @@ public partial class AccountServiceTests
     {
         // Arrange
         var accountsData = TestHelpers.GenerateFakeAccounts(3).ToList(); // Generate some accounts
-        var accountsMock = accountsData.AsQueryable().BuildMock();
+        var accountsMock = accountsData.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -208,7 +210,7 @@ public partial class AccountServiceTests
     public async Task GetPagingAsync_ShouldHandleRepositoryReturningNoData()
     {
         // Arrange
-        var emptyAccounts = new List<Account>().AsQueryable().BuildMock();
+        var emptyAccounts = new List<Account>().BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
@@ -252,7 +254,7 @@ public partial class AccountServiceTests
         var accounts = TestHelpers.GenerateFakeAccounts(totalItems).ToList();
         var orderedAccounts = accounts.OrderBy(a => a.Name).ToList();
 
-        var accountsMock = accounts.AsQueryable().BuildMock();
+        var accountsMock = accounts.BuildMock();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.GetNoTrackingEntities())
