@@ -103,7 +103,7 @@ public abstract class CrudController<TEntity, TCreateRequest, TUpdateRequest,
         catch (Exception ex)
         {
             Logger.LogError(ex, "An error occurred while updating the entity with ID {Id}", id);
-            return StatusCode(500);
+            return StatusCode(StatusCodes.Status500InternalServerError);
         }
     }
 
@@ -175,6 +175,6 @@ public abstract class CrudController<TEntity, TCreateRequest, TUpdateRequest,
 
         if (result != null)
             return Ok(result);
-        return StatusCode(500);
+        return StatusCode(StatusCodes.Status500InternalServerError);
     }
 }

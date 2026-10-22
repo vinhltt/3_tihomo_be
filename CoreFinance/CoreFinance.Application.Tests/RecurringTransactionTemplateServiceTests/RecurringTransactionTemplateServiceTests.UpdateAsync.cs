@@ -1,13 +1,7 @@
 using CoreFinance.Application.DTOs.RecurringTransactionTemplate;
-using CoreFinance.Application.Services;
-using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
-using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.Extensions.Logging;
-using MockQueryable;
 using Moq;
 using Shared.Contracts.Exceptions;
 
@@ -17,402 +11,165 @@ namespace CoreFinance.Application.Tests.RecurringTransactionTemplateServiceTests
 public partial class RecurringTransactionTemplateServiceTests
 {
     /// <summary>
-    ///     (EN) Verifies that UpdateAsync updates the template and generates expected transactions when auto-generate is
-    ///     enabled.<br />
-    ///     (VI) Xác minh rằng UpdateAsync cập nhật mẫu và tạo các giao dịch dự kiến khi bật tự động tạo.
+    ///     (EN) An amount-only edit keeps the schedule and cursor, and already generated periods are not regenerated.<br />
+    ///     (VI) Chỉ sửa số tiền thì giữ nguyên lịch và cursor, các kỳ đã sinh không bị sinh lại.
     /// </summary>
     [Fact]
-    public async Task UpdateAsync_ShouldUpdateTemplateAndGenerateExpectedTransactions_WhenAutoGenerateIsEnabled()
+    public async Task UpdateAsync_ShouldKeepScheduleAndCursor_WhenOnlyAmountChanges()
     {
         // Arrange
-        var templateId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-        var accountId = Guid.CreateVersion7();
-
-        var existingTemplate = new RecurringTransactionTemplate
-        {
-            Id = templateId,
-            UserId = userId,
-            AccountId = accountId,
-            Name = "Old Template Name",
-            Description = "Old Description",
-            Amount = 1000m,
-            TransactionType = RecurringTransactionType.Income,
-            Category = "Old Category",
-            Frequency = RecurrenceFrequency.Monthly,
-            IsActive = true,
-            AutoGenerate = false,
-            DaysInAdvance = 30,
-            StartDate = DateTime.UtcNow.Date,
-            NextExecutionDate = DateTime.UtcNow.Date.AddDays(30),
-            CreatedAt = DateTime.UtcNow.AddDays(-10),
-            UpdatedAt = DateTime.UtcNow.AddDays(-5)
-        };
-
-        var updateRequest = new RecurringTransactionTemplateUpdateRequest
-        {
-            Id = templateId, // Must match the id parameter
-            Name = "Updated Template Name",
-            Description = "Updated Description",
-            Amount = 1500m,
-            TransactionType = RecurringTransactionType.Expense,
-            Category = "Updated Category",
-            Frequency = RecurrenceFrequency.Weekly,
-            IsActive = true,
-            AutoGenerate = true, // Enable auto-generate
-            DaysInAdvance = 60
-        };
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ReturnsAsync(existingTemplate);
-        templateRepoMock.Setup(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()))
-            .ReturnsAsync(1); // Return 1 to indicate successful update
-
-        var expectedTransactionRepoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        expectedTransactionRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(new List<ExpectedTransaction>().BuildMock());
-        expectedTransactionRepoMock.Setup(r => r.CreateAsync(It.IsAny<ExpectedTransaction>()))
-            .ReturnsAsync(1); // Return 1 to indicate successful creation
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Returns(templateRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>())
-            .Returns(expectedTransactionRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-        unitOfWorkMock.Setup(u => u.SaveChangesAsync())
-            .ReturnsAsync(1); // Return 1 to indicate successful save
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var template = NewTemplate(D(2026, 1, 31), cursor: D(2026, 4, 30), daysInAdvance: 30);
+        var harness = new GenerationHarness { Template = template };
+        harness.ExistingDates.AddRange([D(2026, 1, 31), D(2026, 2, 28), D(2026, 3, 31)]);
 
         // Act
-        var result = await service.UpdateAsync(templateId, updateRequest);
+        var result = await harness.Service(D(2026, 3, 15))
+            .UpdateAsync(template.Id, new RecurringTransactionTemplateUpdateRequest { Id = template.Id, Amount = 250m });
 
         // Assert
-        result.Should().NotBeNull();
-        result.Name.Should().Be("Updated Template Name");
-        result.Description.Should().Be("Updated Description");
-        result.Amount.Should().Be(1500m);
-        result.TransactionType.Should().Be(RecurringTransactionType.Expense);
-        result.Category.Should().Be("Updated Category");
-        result.Frequency.Should().Be(RecurrenceFrequency.Weekly);
-        result.AutoGenerate.Should().BeTrue();
-        result.DaysInAdvance.Should().Be(60);
-
-        templateRepoMock.Verify(r => r.GetByIdAsync(templateId),
-            Times.Exactly(2)); // Called once in base.UpdateAsync and once in GenerateExpectedTransactionsInternalAsync
-        templateRepoMock.Verify(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()),
-            Times.Exactly(2)); // Called once in base.UpdateAsync and once in GenerateExpectedTransactionsInternalAsync
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.AtLeastOnce);
+        result!.Amount.Should().Be(250m);
+        template.Frequency.Should().Be(RecurrenceFrequency.Monthly);
+        template.StartDate.Should().Be(D(2026, 1, 31));
+        template.NextExecutionDate.Should().Be(D(2026, 4, 30));
+        harness.Created.Should().BeEmpty();
     }
 
     /// <summary>
-    ///     (EN) Verifies that UpdateAsync does not generate expected transactions when auto-generate is disabled.<br />
-    ///     (VI) Xác minh rằng UpdateAsync không tạo các giao dịch dự kiến khi tắt tự động tạo.
+    ///     (EN) Switching quarterly to monthly fills the missing months from today without reopening processed history;
+    ///     a month that already has a period (even a future one) keeps it.<br />
+    ///     (VI) Đổi từ quý sang tháng sinh bù các tháng thiếu từ hôm nay mà không mở lại lịch sử đã xử lý; tháng đã có kỳ
+    ///     (kể cả kỳ tương lai) được giữ nguyên.
     /// </summary>
     [Fact]
-    public async Task UpdateAsync_ShouldNotGenerateExpectedTransactions_WhenAutoGenerateIsDisabled()
+    public async Task UpdateAsync_ShouldFillMissingMonths_WhenQuarterlyBecomesMonthly()
     {
         // Arrange
-        var templateId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-        var accountId = Guid.CreateVersion7();
-
-        var existingTemplate = new RecurringTransactionTemplate
-        {
-            Id = templateId,
-            UserId = userId,
-            AccountId = accountId,
-            Name = "Template Name",
-            Description = "Description",
-            Amount = 1000m,
-            TransactionType = RecurringTransactionType.Income,
-            Category = "Category",
-            Frequency = RecurrenceFrequency.Monthly,
-            IsActive = true,
-            AutoGenerate = true,
-            DaysInAdvance = 30,
-            StartDate = DateTime.UtcNow.Date,
-            NextExecutionDate = DateTime.UtcNow.Date.AddDays(30),
-            CreatedAt = DateTime.UtcNow.AddDays(-10),
-            UpdatedAt = DateTime.UtcNow.AddDays(-5)
-        };
-
-        var updateRequest = new RecurringTransactionTemplateUpdateRequest
-        {
-            Id = templateId, // Must match the id parameter
-            Name = "Updated Template Name",
-            Description = "Updated Description",
-            Amount = 1500m,
-            TransactionType = RecurringTransactionType.Expense,
-            Category = "Updated Category",
-            Frequency = RecurrenceFrequency.Weekly,
-            IsActive = true,
-            AutoGenerate = false, // Disable auto-generate
-            DaysInAdvance = 60
-        };
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ReturnsAsync(existingTemplate);
-        templateRepoMock.Setup(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()))
-            .ReturnsAsync(1); // Return 1 to indicate successful update
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Returns(templateRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.SaveChangesAsync())
-            .ReturnsAsync(1); // Return 1 to indicate successful save
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var template = NewTemplate(D(2026, 1, 31), RecurrenceFrequency.Quarterly, D(2026, 4, 30), 100);
+        var harness = new GenerationHarness { Template = template };
+        harness.ExistingDates.AddRange([D(2026, 1, 31), D(2026, 4, 30)]);
 
         // Act
-        var result = await service.UpdateAsync(templateId, updateRequest);
+        await harness.Service(D(2026, 2, 1)).UpdateAsync(template.Id,
+            new RecurringTransactionTemplateUpdateRequest { Id = template.Id, Frequency = RecurrenceFrequency.Monthly });
 
         // Assert
-        result.Should().NotBeNull();
-        result.AutoGenerate.Should().BeFalse();
-
-        templateRepoMock.Verify(r => r.GetByIdAsync(templateId), Times.Once);
-        templateRepoMock.Verify(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()), Times.Once);
-
-        // Should not call BeginTransactionAsync for expected transaction generation
-        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Once);
+        harness.CreatedDates.Should().Equal(D(2026, 2, 28), D(2026, 3, 31));
+        template.NextExecutionDate.Should().Be(D(2026, 5, 31));
     }
 
     /// <summary>
-    ///     (EN) Verifies that UpdateAsync throws a NullReferenceException when the template to update is not found.<br />
-    ///     (VI) Xác minh rằng UpdateAsync throws a NullReferenceException khi không tìm thấy mẫu cần cập nhật.
+    ///     (EN) A new StartDate moves the schedule to the new grid; a month already holding a period is not duplicated.<br />
+    ///     (VI) StartDate mới dời lịch sang lưới mới; tháng đã có kỳ không bị sinh trùng.
     /// </summary>
     [Fact]
-    public async Task UpdateAsync_ShouldThrowNullReferenceException_WhenTemplateNotFound()
+    public async Task UpdateAsync_ShouldFollowNewGrid_WhenStartDateChanges()
     {
         // Arrange
-        var templateId = Guid.CreateVersion7();
+        var template = NewTemplate(D(2026, 1, 31), cursor: D(2026, 4, 30), daysInAdvance: 30);
+        var harness = new GenerationHarness { Template = template };
+        harness.ExistingDates.AddRange([D(2026, 1, 31), D(2026, 2, 28), D(2026, 3, 31)]);
 
-        var updateRequest = new RecurringTransactionTemplateUpdateRequest
-        {
-            Id = templateId, // Must match the id parameter
-            Name = "Updated Template Name",
-            Description = "Updated Description",
-            Amount = 1500m,
-            TransactionType = RecurringTransactionType.Expense,
-            Category = "Updated Category",
-            Frequency = RecurrenceFrequency.Weekly,
-            IsActive = true,
-            AutoGenerate = true,
-            DaysInAdvance = 60
-        };
+        // Act
+        await harness.Service(D(2026, 3, 15)).UpdateAsync(template.Id,
+            new RecurringTransactionTemplateUpdateRequest { Id = template.Id, StartDate = D(2026, 3, 10) });
 
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ReturnsAsync((RecurringTransactionTemplate?)null);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Returns(templateRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act & Assert
-        var act = async () => await service.UpdateAsync(templateId, updateRequest);
-        await act.Should().ThrowAsync<EntityNotFoundException>();
-
-        templateRepoMock.Verify(r => r.GetByIdAsync(templateId), Times.Once);
-        templateRepoMock.Verify(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()), Times.Never);
-        transactionMock.Verify(t => t.RollbackAsync(CancellationToken.None), Times.Once);
+        // Assert
+        harness.CreatedDates.Should().Equal(D(2026, 4, 10));
+        template.NextExecutionDate.Should().Be(D(2026, 5, 10));
     }
 
     /// <summary>
-    ///     (EN) Verifies that UpdateAsync updates the correct properties of the recurring transaction template.<br />
-    ///     (VI) Xác minh rằng UpdateAsync cập nhật đúng các thuộc tính của mẫu giao dịch định kỳ.
+    ///     (EN) Disabling auto-generate saves the edit and generates nothing.<br />
+    ///     (VI) Tắt tự sinh thì lưu chỉnh sửa và không sinh gì.
     /// </summary>
     [Fact]
-    public async Task UpdateAsync_ShouldUpdateCorrectProperties()
+    public async Task UpdateAsync_ShouldNotGenerate_WhenAutoGenerateIsDisabled()
     {
         // Arrange
-        var templateId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-        var accountId = Guid.CreateVersion7();
-
-        var existingTemplate = new RecurringTransactionTemplate
-        {
-            Id = templateId,
-            UserId = userId,
-            AccountId = accountId,
-            Name = "Original Name",
-            Description = "Original Description",
-            Amount = 1000m,
-            TransactionType = RecurringTransactionType.Income,
-            Category = "Original Category",
-            Frequency = RecurrenceFrequency.Monthly,
-            IsActive = false,
-            AutoGenerate = false,
-            DaysInAdvance = 30,
-            StartDate = DateTime.UtcNow.Date,
-            NextExecutionDate = DateTime.UtcNow.Date.AddDays(30),
-            CreatedAt = DateTime.UtcNow.AddDays(-10),
-            UpdatedAt = DateTime.UtcNow.AddDays(-5)
-        };
-
-        var updateRequest = new RecurringTransactionTemplateUpdateRequest
-        {
-            Id = templateId, // Must match the id parameter
-            Name = "New Name",
-            Description = "New Description",
-            Amount = 2000m,
-            TransactionType = RecurringTransactionType.Expense,
-            Category = "New Category",
-            Frequency = RecurrenceFrequency.Weekly,
-            IsActive = true,
-            AutoGenerate = false,
-            DaysInAdvance = 45,
-            CustomIntervalDays = 10,
-            EndDate = DateTime.UtcNow.Date.AddMonths(6)
-        };
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ReturnsAsync(existingTemplate);
-        templateRepoMock.Setup(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()))
-            .ReturnsAsync(1); // Return 1 to indicate successful update
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Returns(templateRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.SaveChangesAsync())
-            .ReturnsAsync(1); // Return 1 to indicate successful save
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var template = NewTemplate(D(2026, 1, 1), daysInAdvance: 365);
+        var harness = new GenerationHarness { Template = template };
 
         // Act
-        var result = await service.UpdateAsync(templateId, updateRequest);
+        var result = await harness.Service().UpdateAsync(template.Id,
+            new RecurringTransactionTemplateUpdateRequest { Id = template.Id, AutoGenerate = false, Name = "Water" });
 
         // Assert
-        result.Should().NotBeNull();
-        result.Id.Should().Be(templateId);
-        result.UserId.Should().Be(userId); // Should remain unchanged
-        result.AccountId.Should().Be(accountId); // Should remain unchanged
-        result.Name.Should().Be("New Name");
-        result.Description.Should().Be("New Description");
-        result.Amount.Should().Be(2000m);
-        result.TransactionType.Should().Be(RecurringTransactionType.Expense);
-        result.Category.Should().Be("New Category");
-        result.Frequency.Should().Be(RecurrenceFrequency.Weekly);
-        result.IsActive.Should().BeTrue();
-        result.AutoGenerate.Should().BeFalse();
-        result.DaysInAdvance.Should().Be(45);
-        result.CustomIntervalDays.Should().Be(10);
-        result.EndDate.Should().Be(updateRequest.EndDate);
-
-        templateRepoMock.Verify(r => r.UpdateAsync(It.Is<RecurringTransactionTemplate>(t =>
-            t.Name == "New Name" &&
-            t.Description == "New Description" &&
-            t.Amount == 2000m &&
-            t.TransactionType == RecurringTransactionType.Expense &&
-            t.Category == "New Category" &&
-            t.Frequency == RecurrenceFrequency.Weekly &&
-            t.IsActive == true &&
-            t.AutoGenerate == false &&
-            t.DaysInAdvance == 45 &&
-            t.CustomIntervalDays == 10 &&
-            t.EndDate == updateRequest.EndDate
-        )), Times.Once);
+        result!.AutoGenerate.Should().BeFalse();
+        harness.Created.Should().BeEmpty();
     }
 
     /// <summary>
-    ///     (EN) Verifies that UpdateAsync preserves the CreatedAt timestamp and updates the UpdatedAt timestamp.<br />
-    ///     (VI) Xác minh rằng UpdateAsync giữ nguyên dấu thời gian CreatedAt và cập nhật dấu thời gian UpdatedAt.
+    ///     (EN) A missing template or a route/body ID mismatch fails and rolls back without writing.<br />
+    ///     (VI) Mẫu không tồn tại hoặc ID route/body không khớp thì thất bại và rollback, không ghi gì.
     /// </summary>
     [Fact]
-    public async Task UpdateAsync_ShouldPreserveCreatedAtAndUpdateUpdatedAt()
+    public async Task UpdateAsync_ShouldFailWithoutWriting_WhenTemplateMissingOrIdMismatch()
     {
         // Arrange
-        var templateId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-        var accountId = Guid.CreateVersion7();
-        var originalCreatedAt = DateTime.UtcNow.AddDays(-10);
-        var originalUpdatedAt = DateTime.UtcNow.AddDays(-5);
-
-        var existingTemplate = new RecurringTransactionTemplate
-        {
-            Id = templateId,
-            UserId = userId,
-            AccountId = accountId,
-            Name = "Original Name",
-            Description = "Original Description",
-            Amount = 1000m,
-            TransactionType = RecurringTransactionType.Income,
-            Category = "Original Category",
-            Frequency = RecurrenceFrequency.Monthly,
-            IsActive = true,
-            AutoGenerate = false,
-            DaysInAdvance = 30,
-            StartDate = DateTime.UtcNow.Date,
-            NextExecutionDate = DateTime.UtcNow.Date.AddDays(30),
-            CreatedAt = originalCreatedAt,
-            UpdatedAt = originalUpdatedAt
-        };
-
-        var updateRequest = new RecurringTransactionTemplateUpdateRequest
-        {
-            Id = templateId, // Must match the id parameter
-            Name = "Updated Name",
-            Description = "Updated Description",
-            Amount = 1500m,
-            TransactionType = RecurringTransactionType.Expense,
-            Category = "Updated Category",
-            Frequency = RecurrenceFrequency.Weekly,
-            IsActive = true,
-            AutoGenerate = false,
-            DaysInAdvance = 45
-        };
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ReturnsAsync(existingTemplate);
-        templateRepoMock.Setup(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()))
-            .ReturnsAsync(1); // Return 1 to indicate successful update
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Returns(templateRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.SaveChangesAsync())
-            .ReturnsAsync(1); // Return 1 to indicate successful save
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var harness = new GenerationHarness();
+        var id = Guid.CreateVersion7();
 
         // Act
-        var result = await service.UpdateAsync(templateId, updateRequest);
+        var missing = () => harness.Service().UpdateAsync(id, new RecurringTransactionTemplateUpdateRequest { Id = id });
+        var mismatch = () => harness.Service()
+            .UpdateAsync(id, new RecurringTransactionTemplateUpdateRequest { Id = Guid.CreateVersion7() });
 
         // Assert
-        result.Should().NotBeNull();
+        await missing.Should().ThrowAsync<EntityNotFoundException>();
+        await mismatch.Should().ThrowAsync<KeyNotFoundException>();
+        harness.Created.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Changing a custom interval starts at the earlier of the cursor and today, preserving occupied slots.<br />
+    ///     (VI) Đổi khoảng custom bắt đầu tại ngày sớm hơn giữa cursor và hôm nay, giữ các kỳ đã có.
+    /// </summary>
+    [Theory]
+    [InlineData(5, new[] { 5, 10, 15, 25 })]
+    [InlineData(25, new[] { 15, 25 })]
+    public async Task UpdateAsync_ShouldUseEarlierCursorAndNewInterval_WhenCustomIntervalChanges(
+        int cursorDay, int[] expectedDays)
+    {
+        // Arrange
+        var template = NewTemplate(D(2026, 3, 1), RecurrenceFrequency.Custom, D(2026, 3, cursorDay),
+            daysInAdvance: 10);
+        template.CustomIntervalDays = 2;
+        var harness = new GenerationHarness { Template = template };
+        harness.ExistingDates.AddRange([D(2026, 3, 3), D(2026, 3, 20)]);
+
+        // Act
+        await harness.Service().UpdateAsync(template.Id,
+            new RecurringTransactionTemplateUpdateRequest { Id = template.Id, CustomIntervalDays = 5 });
+
+        // Assert
+        harness.CreatedDates.Should().Equal(expectedDays.Select(day => D(2026, 3, day)));
+        template.NextExecutionDate.Should().Be(D(2026, 3, 30));
+        template.CustomIntervalDays.Should().Be(5);
+        harness.ExistingDates.Should().Equal(D(2026, 3, 3), D(2026, 3, 20));
+    }
+
+    /// <summary>
+    ///     (EN) A zero affected update fails instead of generating periods or returning success.<br />
+    ///     (VI) Cập nhật không ảnh hưởng bản ghi nào thất bại thay vì sinh kỳ hay trả thành công.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_ShouldThrowUpdateFailedException_WhenRepositoryReportsNoUpdate()
+    {
+        // Arrange
+        var template = NewTemplate(Today, RecurrenceFrequency.Daily);
+        var harness = new GenerationHarness { Template = template };
+        harness.TemplateRepo
+            .Setup(repository => repository.UpdateAsync(It.IsAny<RecurringTransactionTemplate>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+
+        // Act
+        var act = () => harness.Service().UpdateAsync(template.Id,
+            new RecurringTransactionTemplateUpdateRequest { Id = template.Id, Amount = 250m });
+
+        // Assert
+        await act.Should().ThrowAsync<UpdateFailedException>();
+        harness.Created.Should().BeEmpty();
+        template.NextExecutionDate.Should().Be(Today);
     }
 }

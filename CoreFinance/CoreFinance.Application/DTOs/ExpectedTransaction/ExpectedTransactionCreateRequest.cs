@@ -7,35 +7,41 @@ namespace CoreFinance.Application.DTOs.ExpectedTransaction;
 ///     Represents a request to create a new expected transaction. (EN)<br />
 ///     Đại diện cho request tạo giao dịch dự kiến mới. (VI)
 /// </summary>
+/// <remarks>
+///     (EN) Creation validates Pending state and any supplied owned references; it does not create an actual transaction.
+///     The server supplies ownership and generation time regardless of the client's UserId.<br />
+///     (VI) Khi tạo, dịch vụ kiểm tra trạng thái Pending và quyền sở hữu các tham chiếu được gửi; không tạo giao dịch thực.
+///     Máy chủ xác định owner và thời điểm sinh, không phụ thuộc UserId do client gửi.
+/// </remarks>
 public class ExpectedTransactionCreateRequest : BaseCreateRequest
 {
     /// <summary>
-    ///     The ID of the recurring transaction template this expected transaction is based on. (EN)<br />
-    ///     ID của mẫu giao dịch định kỳ mà giao dịch dự kiến này dựa trên. (VI)
+    ///     An optional owned recurring template identifier; null is allowed, Guid.Empty is not. (EN)<br />
+    ///     ID mẫu định kỳ tùy chọn thuộc owner hiện tại; cho phép null nhưng không chấp nhận Guid.Empty. (VI)
     /// </summary>
-    public Guid RecurringTransactionTemplateId { get; set; }
+    public Guid? RecurringTransactionTemplateId { get; set; }
 
     /// <summary>
-    ///     The ID of the user associated with the expected transaction (optional). (EN)<br />
-    ///     ID của người dùng liên quan đến giao dịch dự kiến (tùy chọn). (VI)
+    ///     An optional client value ignored for ownership; the repository assigns the current owner. (EN)<br />
+    ///     Giá trị client tùy chọn, bị bỏ qua khi xác định quyền sở hữu; repository gán owner hiện tại. (VI)
     /// </summary>
     public Guid? UserId { get; set; }
 
     /// <summary>
-    ///     The ID of the account associated with the expected transaction. (EN)<br />
-    ///     ID của tài khoản liên quan đến giao dịch dự kiến. (VI)
+    ///     An optional owned account identifier; null is allowed, Guid.Empty is not. (EN)<br />
+    ///     ID tài khoản tùy chọn thuộc owner hiện tại; cho phép null nhưng không chấp nhận Guid.Empty. (VI)
     /// </summary>
-    public Guid AccountId { get; set; }
+    public Guid? AccountId { get; set; }
 
     /// <summary>
-    ///     The expected date of the transaction. (EN)<br />
-    ///     Ngày dự kiến của giao dịch. (VI)
+    ///     The required nominal expected date, interpreted as a calendar date for UTC+7 due-state calculations. (EN)<br />
+    ///     Ngày dự kiến danh nghĩa bắt buộc, được xem là ngày lịch khi tính trạng thái đến hạn theo UTC+7. (VI)
     /// </summary>
     public DateTime ExpectedDate { get; set; }
 
     /// <summary>
-    ///     The expected amount of the transaction. (EN)<br />
-    ///     Số tiền dự kiến của giao dịch. (VI)
+    ///     The strictly positive expected amount of the transaction. (EN)<br />
+    ///     Số tiền dự kiến của giao dịch, bắt buộc lớn hơn 0. (VI)
     /// </summary>
     public decimal ExpectedAmount { get; set; }
 
@@ -58,8 +64,8 @@ public class ExpectedTransactionCreateRequest : BaseCreateRequest
     public string? Category { get; set; }
 
     /// <summary>
-    ///     The current status of the expected transaction (e.g., Pending, Confirmed, Cancelled). (EN)<br />
-    ///     Trạng thái hiện tại của giao dịch dự kiến (ví dụ: Đang chờ, Đã xác nhận, Đã hủy). (VI)
+    ///     The initial status; only Pending is accepted when creating a period. (EN)<br />
+    ///     Trạng thái ban đầu; chỉ chấp nhận Pending khi tạo kỳ. (VI)
     /// </summary>
     public ExpectedTransactionStatus Status { get; set; } = ExpectedTransactionStatus.Pending;
 

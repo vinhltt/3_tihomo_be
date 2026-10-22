@@ -7,25 +7,31 @@ namespace CoreFinance.Application.DTOs.ExpectedTransaction;
 ///     Represents a view model for expected transaction data. (EN)<br />
 ///     Đại diện cho view model dữ liệu giao dịch dự kiến. (VI)
 /// </summary>
+/// <remarks>
+///     (EN) Queries derive date-based fields in SQL from the current UTC+7 business date before filtering or paging.
+///     Navigation names and account type are exposed only when the related entity belongs to the period's owner.<br />
+///     (VI) Truy vấn tính các trường theo ngày trong SQL từ ngày nghiệp vụ hiện tại UTC+7 trước khi lọc hoặc phân trang.
+///     Tên tham chiếu và loại tài khoản chỉ được hiển thị khi thực thể liên quan thuộc cùng owner với kỳ.
+/// </remarks>
 public class ExpectedTransactionViewModel : BaseViewModel<Guid>
 {
     /// <summary>
-    ///     The ID of the recurring transaction template this expected transaction is based on. (EN)<br />
-    ///     ID của mẫu giao dịch định kỳ mà giao dịch dự kiến này dựa trên. (VI)
+    ///     The optional recurring template identifier stored on the period. (EN)<br />
+    ///     ID mẫu định kỳ tùy chọn được lưu trên kỳ. (VI)
     /// </summary>
-    public Guid RecurringTransactionTemplateId { get; set; }
+    public Guid? RecurringTransactionTemplateId { get; set; }
 
     /// <summary>
-    ///     The ID of the user associated with the expected transaction (optional). (EN)<br />
-    ///     ID của người dùng liên quan đến giao dịch dự kiến (tùy chọn). (VI)
+    ///     The server-controlled owner identifier; nullable for stored legacy data. (EN)<br />
+    ///     ID owner do máy chủ quản lý; có thể null đối với dữ liệu cũ đã lưu. (VI)
     /// </summary>
     public Guid? UserId { get; set; }
 
     /// <summary>
-    ///     The ID of the account associated with the expected transaction. (EN)<br />
-    ///     ID của tài khoản liên quan đến giao dịch dự kiến. (VI)
+    ///     The optional account identifier stored on the period. (EN)<br />
+    ///     ID tài khoản tùy chọn được lưu trên kỳ. (VI)
     /// </summary>
-    public Guid AccountId { get; set; }
+    public Guid? AccountId { get; set; }
 
     /// <summary>
     ///     The ID of the actual transaction linked to this expected transaction (optional). (EN)<br />
@@ -70,6 +76,14 @@ public class ExpectedTransactionViewModel : BaseViewModel<Guid>
     public ExpectedTransactionStatus Status { get; set; }
 
     /// <summary>
+    ///     (EN) Response-only derived display state: persisted states 0..3, or 4 for Pending before today in UTC+7.
+    ///     Overdue is not stored and does not transition or cancel the period.<br />
+    ///     (VI) Trạng thái hiển thị chỉ dẫn xuất trong phản hồi: trạng thái lưu trữ 0..3, hoặc 4 cho Pending trước hôm nay
+    ///     theo UTC+7. Overdue không được lưu và không làm chuyển trạng thái hay hủy kỳ.
+    /// </summary>
+    public int DisplayStatus { get; set; }
+
+    /// <summary>
     ///     Indicates if the expected transaction amount has been adjusted. (EN)<br />
     ///     Cho biết số tiền giao dịch dự kiến đã được điều chỉnh hay chưa. (VI)
     /// </summary>
@@ -82,8 +96,8 @@ public class ExpectedTransactionViewModel : BaseViewModel<Guid>
     public decimal? OriginalAmount { get; set; }
 
     /// <summary>
-    ///     The reason for the adjustment (optional). (EN)<br />
-    ///     Lý do điều chỉnh (tùy chọn). (VI)
+    ///     The reason for the latest adjustment or cancellation (optional). (EN)<br />
+    ///     Lý do điều chỉnh gần nhất hoặc hủy kỳ (tùy chọn). (VI)
     /// </summary>
     public string? AdjustmentReason { get; set; }
 
@@ -106,20 +120,20 @@ public class ExpectedTransactionViewModel : BaseViewModel<Guid>
     public DateTime? ProcessedAt { get; set; }
 
     /// <summary>
-    ///     The name of the recurring transaction template this expected transaction is based on. (EN)<br />
-    ///     Tên của mẫu giao dịch định kỳ mà giao dịch dự kiến này dựa trên. (VI)
+    ///     The template name when its owner matches the period; empty when the reference is absent or foreign. (EN)<br />
+    ///     Tên mẫu khi cùng owner với kỳ; rỗng nếu không có tham chiếu hoặc tham chiếu thuộc owner khác. (VI)
     /// </summary>
     public string? TemplateName { get; set; }
 
     /// <summary>
-    ///     The name of the associated account. (EN)<br />
-    ///     Tên của tài khoản liên kết. (VI)
+    ///     The account name when its owner matches the period; empty when the reference is absent or foreign. (EN)<br />
+    ///     Tên tài khoản khi cùng owner với kỳ; rỗng nếu không có tham chiếu hoặc tham chiếu thuộc owner khác. (VI)
     /// </summary>
     public string? AccountName { get; set; }
 
     /// <summary>
-    ///     The type of the associated account. (EN)<br />
-    ///     Loại của tài khoản liên kết. (VI)
+    ///     The associated account type, or null when the account is absent or foreign. (EN)<br />
+    ///     Loại tài khoản liên quan, hoặc null khi tài khoản không tồn tại hoặc thuộc owner khác. (VI)
     /// </summary>
     public AccountType? AccountType { get; set; }
 
@@ -130,8 +144,8 @@ public class ExpectedTransactionViewModel : BaseViewModel<Guid>
     public bool HasActualTransaction { get; set; }
 
     /// <summary>
-    ///     The number of days until the expected transaction is due. (EN)<br />
-    ///     Số ngày còn lại cho đến ngày đáo hạn của giao dịch dự kiến. (VI)
+    ///     ExpectedDate minus today UTC+7 in calendar days; negative values indicate a past due date. (EN)<br />
+    ///     ExpectedDate trừ hôm nay UTC+7 theo số ngày lịch; giá trị âm biểu thị ngày hạn đã qua. (VI)
     /// </summary>
     public int DaysUntilDue { get; set; }
 }

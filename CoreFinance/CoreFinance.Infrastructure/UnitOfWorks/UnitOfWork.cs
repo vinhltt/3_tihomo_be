@@ -1,6 +1,7 @@
 ﻿using System.Reflection;
 using System.Runtime.CompilerServices;
 using CoreFinance.Domain.BaseRepositories;
+using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.UnitOfWorks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -38,9 +39,9 @@ public class UnitOfWork<TContext>(
     ///     A task that represents the asynchronous save operation. The task result contains the number of state entries
     ///     written to the database.
     /// </returns>
-    public Task<int> SaveChangesAsync()
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        return context.SaveChangesAsync();
+        return context.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
@@ -50,9 +51,22 @@ public class UnitOfWork<TContext>(
     /// <returns>
     ///     A task that represents the asynchronous operation. The task result contains the newly created transaction.
     /// </returns>
-    public async Task<IDbContextTransaction> BeginTransactionAsync()
+    public async Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
     {
-        return await context.Database.BeginTransactionAsync();
+        return await context.Database.BeginTransactionAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task AcquireOwnerResourceLockAsync(string resource, Guid resourceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (context.Database.CurrentTransaction == null)
+            throw new InvalidOperationException(CoreFinanceMessages.TemplateLockRequiresTransaction);
+
+        var ownerId = serviceProvider.GetRequiredService<ICurrentUserContext>().UserId;
+        var key = $"{resource}:{ownerId:N}:{resourceId:N}";
+        await context.Database.ExecuteSqlAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", cancellationToken);
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 using CoreFinance.Application.DTOs.Account;
+using CoreFinance.Domain.Constants;
 using FluentValidation;
 
 namespace CoreFinance.Application.Validators;
@@ -26,11 +27,11 @@ public class CreateAccountRequestValidator : AbstractValidator<AccountCreateRequ
         {
             RuleFor(x => x.Code)
                 .MaximumLength(50)
-                .WithMessage("Account code must not exceed 50 characters / Mã tài khoản không được vượt quá 50 ký tự");
+                .WithMessage(CoreFinanceMessages.AccountCodeMaxLength);
 
             RuleFor(x => x.Code)
                 .Matches(@"^[a-z0-9_]+$")
-                .WithMessage("Account code must be snake_case (lowercase letters, numbers, underscores only) / Mã tài khoản phải là snake_case (chỉ chữ thường, số, gạch dưới)");
+                .WithMessage(CoreFinanceMessages.AccountCodeSnakeCase);
 
             // TODO: Add uniqueness check in T012 when repository is implemented
             // RuleFor(x => x.Code)
@@ -47,6 +48,6 @@ public class CreateAccountRequestValidator : AbstractValidator<AccountCreateRequ
         RuleFor(x => x.Code)
             .NotEmpty()
             .When(x => x.Code != null)
-            .WithMessage("Account code cannot be empty string / Mã tài khoản không được là chuỗi rỗng");
+            .WithMessage(CoreFinanceMessages.AccountCodeNotEmpty);
     }
 }

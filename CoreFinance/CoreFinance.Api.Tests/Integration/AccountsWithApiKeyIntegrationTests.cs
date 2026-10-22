@@ -152,7 +152,7 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
         ArgumentNullException.ThrowIfNull(request);
 
         var formData = new MultipartFormDataContent();
-        formData.Add(new StringContent(request.UserId.ToString()), "UserId");
+        formData.Add(new StringContent(request.UserId?.ToString() ?? string.Empty), "UserId");
         formData.Add(new StringContent(request.Name ?? string.Empty), "Name");
         formData.Add(new StringContent(request.Type.ToString()), "Type");
         formData.Add(new StringContent(request.Currency ?? string.Empty), "Currency");
@@ -174,7 +174,7 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
         var formData = new MultipartFormDataContent();
         formData.Add(new StringContent(request.Id.ToString()), "Id");
         formData.Add(new StringContent(request.Name ?? string.Empty), "Name");
-        formData.Add(new StringContent(request.Type.ToString()), "Type");
+        formData.Add(new StringContent(request.Type?.ToString() ?? string.Empty), "Type");
         formData.Add(new StringContent(request.Currency ?? string.Empty), "Currency");
         
         // Description field removed from request DTOs

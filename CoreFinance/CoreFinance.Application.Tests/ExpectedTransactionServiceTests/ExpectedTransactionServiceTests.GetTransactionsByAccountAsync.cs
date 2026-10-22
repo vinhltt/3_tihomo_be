@@ -1,541 +1,124 @@
-using CoreFinance.Application.DTOs.ExpectedTransaction;
-using CoreFinance.Application.Services;
-using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
-using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using Microsoft.Extensions.Logging;
-using MockQueryable;
-using Moq;
 
 namespace CoreFinance.Application.Tests.ExpectedTransactionServiceTests;
 
-/// <summary>
-///     Contains test cases for the GetTransactionsByAccountAsync method of ExpectedTransactionService. (EN)<br />
-///     Chứa các trường hợp kiểm thử cho phương thức GetTransactionsByAccountAsync của ExpectedTransactionService. (VI)
-/// </summary>
-// Tests for the GetTransactionsByAccountAsync method of ExpectedTransactionService
 public partial class ExpectedTransactionServiceTests
 {
     /// <summary>
-    ///     Verifies that GetTransactionsByAccountAsync returns transactions for a specific account. (EN)<br />
-    ///     Xác minh rằng GetTransactionsByAccountAsync trả về các giao dịch cho một tài khoản cụ thể. (VI)
+    ///     (EN) Account history includes all lifecycle states and dates, with a stable date/ID order.<br />
+    ///     (VI) Lịch sử tài khoản gồm mọi trạng thái và ngày, sắp ổn định theo ngày/ID.
     /// </summary>
     [Fact]
-    public async Task GetTransactionsByAccountAsync_ShouldReturnTransactionsForSpecificAccount()
+    public async Task GetTransactionsByAccountAsync_ShouldReturnStableHistory_WhenAccountHasMixedPeriods()
     {
         // Arrange
-        var accountId = Guid.CreateVersion7();
-        var otherAccountId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Account Transaction 1",
-                ExpectedAmount = 1000m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(5)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Account Transaction 2",
-                ExpectedAmount = 1500m,
-                Status = ExpectedTransactionStatus.Confirmed,
-                ExpectedDate = DateTime.UtcNow.AddDays(10)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = otherAccountId, // Different account
-                UserId = userId,
-                Description = "Other Account Transaction",
-                ExpectedAmount = 2000m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(15)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Account Transaction 3",
-                ExpectedAmount = 2500m,
-                Status = ExpectedTransactionStatus.Cancelled,
-                ExpectedDate = DateTime.UtcNow.AddDays(20)
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var pending = Expected(1, -1);
+        var confirmed = Expected(2, status: ExpectedTransactionStatus.Confirmed);
+        var cancelled = Expected(3, status: ExpectedTransactionStatus.Cancelled);
+        var completed = Expected(4, 7, ExpectedTransactionStatus.Completed);
+        var otherAccount = Expected(5);
+        otherAccount.AccountId = Id(50);
+        var unbound = Expected(6);
+        unbound.AccountId = null;
+        var fixture = CreateFixture(completed, cancelled, otherAccount, confirmed, unbound, pending);
 
         // Act
-        var result = await service.GetTransactionsByAccountAsync(accountId);
+        var result = (await fixture.Service.GetTransactionsByAccountAsync(AccountId)).ToList();
 
         // Assert
-        var expectedTransactionViewModels = result.ToList();
-        expectedTransactionViewModels.Should().NotBeNull();
-        expectedTransactionViewModels.Should().HaveCount(3);
-        expectedTransactionViewModels.Should().OnlyContain(t => t.AccountId == accountId);
-        expectedTransactionViewModels.Select(t => t.Description).Should().Contain([
-            "Account Transaction 1", "Account Transaction 2", "Account Transaction 3"
-        ]);
-
-        // Should be ordered by ExpectedDate
-        var resultList = expectedTransactionViewModels.ToList();
-        resultList[0].Description.Should().Be("Account Transaction 1");
-        resultList[1].Description.Should().Be("Account Transaction 2");
-        resultList[2].Description.Should().Be("Account Transaction 3");
+        result.Select(t => t.Id).Should().Equal(Id(1), Id(2), Id(3), Id(4));
+        result.Select(t => t.Status).Should().Equal(ExpectedTransactionStatus.Pending,
+            ExpectedTransactionStatus.Confirmed, ExpectedTransactionStatus.Cancelled, ExpectedTransactionStatus.Completed);
+        result.Select(t => t.DisplayStatus).Should().Equal(4, 1, 2, 3);
+        result.Select(t => t.DaysUntilDue).Should().Equal(-1, 0, 0, 7);
+        pending.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        pending.ProcessedAt.Should().BeNull();
     }
 
     /// <summary>
-    ///     Verifies that GetTransactionsByAccountAsync returns an empty list when the account has no transactions. (EN)<br />
-    ///     Xác minh rằng GetTransactionsByAccountAsync trả về danh sách rỗng khi tài khoản không có giao dịch nào. (VI)
+    ///     (EN) Empty account history is returned for both an empty source and a source with no matching account.<br />
+    ///     (VI) Trả lịch sử rỗng khi nguồn rỗng hoặc không có tài khoản khớp.
     /// </summary>
-    [Fact]
-    public async Task GetTransactionsByAccountAsync_ShouldReturnEmptyList_WhenAccountHasNoTransactions()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetTransactionsByAccountAsync_ShouldReturnEmpty_WhenNoPeriodMatchesAccount(bool otherPeriod)
     {
         // Arrange
-        var accountId = Guid.CreateVersion7();
-        var otherAccountId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = otherAccountId, // Different account
-                UserId = userId,
-                Description = "Other Account Transaction",
-                ExpectedAmount = 1000m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(5)
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var fixture = CreateFixture(otherPeriod ? [Expected(1)] : []);
 
         // Act
-        var result = await service.GetTransactionsByAccountAsync(accountId);
+        var result = await fixture.Service.GetTransactionsByAccountAsync(Id(50));
 
         // Assert
-        var expectedTransactionViewModels = result as ExpectedTransactionViewModel[] ?? result.ToArray();
-        expectedTransactionViewModels.Should().NotBeNull();
-        expectedTransactionViewModels.Should().BeEmpty();
+        result.Should().BeEmpty();
     }
 
     /// <summary>
-    ///     Verifies that GetTransactionsByAccountAsync returns an empty list when no transactions exist in the repository.
-    ///     (EN)<br />
-    ///     Xác minh rằng GetTransactionsByAccountAsync trả về danh sách rỗng khi không có giao dịch nào tồn tại trong
-    ///     repository. (VI)
+    ///     (EN) Account history exposes adjustment history and linked state without hiding income or expense periods.<br />
+    ///     (VI) Lịch sử tài khoản trả lịch sử điều chỉnh và liên kết, không ẩn kỳ thu hoặc chi.
     /// </summary>
     [Fact]
-    public async Task GetTransactionsByAccountAsync_ShouldReturnEmptyList_WhenNoTransactionsExist()
+    public async Task GetTransactionsByAccountAsync_ShouldExposeAdjustmentAndLinkState_WhenHistoryContainsBothTypes()
     {
         // Arrange
-        var accountId = Guid.CreateVersion7();
-        var expectedTransactionsMock = new List<ExpectedTransaction>().BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var income = Expected(1, amount: 5000m, type: RecurringTransactionType.Income);
+        var expense = Expected(2, status: ExpectedTransactionStatus.Confirmed, amount: 120m);
+        expense.IsAdjusted = true;
+        expense.OriginalAmount = 100m;
+        expense.AdjustmentReason = "New meter reading";
+        expense.ActualTransactionId = ActualId;
+        var fixture = CreateFixture(expense, income);
 
         // Act
-        var result = await service.GetTransactionsByAccountAsync(accountId);
+        var result = (await fixture.Service.GetTransactionsByAccountAsync(AccountId)).ToList();
 
         // Assert
-        var expectedTransactionViewModels = result.ToList();
-        expectedTransactionViewModels.Should().NotBeNull();
-        expectedTransactionViewModels.Should().BeEmpty();
+        result[0].TransactionType.Should().Be(RecurringTransactionType.Income);
+        result[0].ExpectedAmount.Should().Be(5000m);
+        result[0].HasActualTransaction.Should().BeFalse();
+        result[1].TransactionType.Should().Be(RecurringTransactionType.Expense);
+        result[1].ExpectedAmount.Should().Be(120m);
+        result[1].OriginalAmount.Should().Be(100m);
+        result[1].IsAdjusted.Should().BeTrue();
+        result[1].AdjustmentReason.Should().Be("New meter reading");
+        result[1].HasActualTransaction.Should().BeTrue();
+        result[1].ActualTransactionId.Should().Be(ActualId);
     }
 
     /// <summary>
-    ///     Verifies that GetTransactionsByAccountAsync returns transactions ordered by ExpectedDate. (EN)<br />
-    ///     Xác minh rằng GetTransactionsByAccountAsync trả về các giao dịch được sắp xếp theo ExpectedDate. (VI)
+    ///     (EN) Unavailable or foreign navigation metadata is masked in the consumer projection, not SQL/isolation proof.<br />
+    ///     (VI) Projection che metadata navigation thiếu hoặc khác chủ; không chứng minh SQL hay cách ly repository.
     /// </summary>
-    [Fact]
-    public async Task GetTransactionsByAccountAsync_ShouldReturnTransactionsOrderedByExpectedDate()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetTransactionsByAccountAsync_ShouldMaskUnavailableNavigationMetadata_WhenNavigationIsNotOwned(
+        bool foreign)
     {
         // Arrange
-        var accountId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-
-        var expectedTransactions = new List<ExpectedTransaction>
+        var expected = Expected(1, -1);
+        if (foreign)
         {
-            new()
+            expected.Account = new Account { Id = AccountId, UserId = OtherOwnerId, Name = "Private account" };
+            expected.RecurringTransactionTemplate = new RecurringTransactionTemplate
             {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Transaction C",
-                ExpectedAmount = 1000m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(20)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Transaction A",
-                ExpectedAmount = 1500m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(5)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Transaction B",
-                ExpectedAmount = 2000m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(10)
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+                Id = TemplateId, UserId = OtherOwnerId, Name = "Private template"
+            };
+        }
+        var fixture = CreateFixture(expected);
 
         // Act
-        var result = await service.GetTransactionsByAccountAsync(accountId);
+        var result = (await fixture.Service.GetTransactionsByAccountAsync(AccountId)).Single();
 
         // Assert
-        var expectedTransactionViewModels = result.ToList();
-        expectedTransactionViewModels.Should().NotBeNull();
-        expectedTransactionViewModels.Should().HaveCount(3);
-
-        var resultList = expectedTransactionViewModels.ToList();
-        resultList[0].Description.Should().Be("Transaction A"); // Earliest date
-        resultList[1].Description.Should().Be("Transaction B"); // Middle date
-        resultList[2].Description.Should().Be("Transaction C"); // Latest date
-
-        // Verify ordering
-        for (var i = 0; i < resultList.Count - 1; i++)
-            resultList[i].ExpectedDate.Should().BeOnOrBefore(resultList[i + 1].ExpectedDate);
-    }
-
-    /// <summary>
-    ///     Verifies that GetTransactionsByAccountAsync returns transactions of all status types. (EN)<br />
-    ///     Xác minh rằng GetTransactionsByAccountAsync trả về các giao dịch của tất cả các loại trạng thái. (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetTransactionsByAccountAsync_ShouldReturnAllStatusTypes()
-    {
-        // Arrange
-        var accountId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Pending Transaction",
-                ExpectedAmount = 1000m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(5)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Confirmed Transaction",
-                ExpectedAmount = 1500m,
-                Status = ExpectedTransactionStatus.Confirmed,
-                ExpectedDate = DateTime.UtcNow.AddDays(10)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Cancelled Transaction",
-                ExpectedAmount = 2000m,
-                Status = ExpectedTransactionStatus.Cancelled,
-                ExpectedDate = DateTime.UtcNow.AddDays(15)
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.GetTransactionsByAccountAsync(accountId);
-
-        // Assert
-        var expectedTransactionViewModels = result.ToList();
-        expectedTransactionViewModels.Should().NotBeNull();
-        expectedTransactionViewModels.Should().HaveCount(3);
-        expectedTransactionViewModels.Should().Contain(t => t.Status == ExpectedTransactionStatus.Pending);
-        expectedTransactionViewModels.Should().Contain(t => t.Status == ExpectedTransactionStatus.Confirmed);
-        expectedTransactionViewModels.Should().Contain(t => t.Status == ExpectedTransactionStatus.Cancelled);
-    }
-
-    /// <summary>
-    ///     Verifies that GetTransactionsByAccountAsync returns the correct transaction properties in the ViewModel. (EN)<br />
-    ///     Xác minh rằng GetTransactionsByAccountAsync trả về đúng các thuộc tính giao dịch trong ViewModel. (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetTransactionsByAccountAsync_ShouldReturnCorrectTransactionProperties()
-    {
-        // Arrange
-        var accountId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-        var templateId = Guid.CreateVersion7();
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                RecurringTransactionTemplateId = templateId,
-                Description = "Monthly Rent",
-                ExpectedAmount = 1500m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Housing",
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(5),
-                GeneratedAt = DateTime.UtcNow.AddDays(-1),
-                CreatedAt = DateTime.UtcNow.AddDays(-1),
-                UpdatedAt = DateTime.UtcNow.AddDays(-1)
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.GetTransactionsByAccountAsync(accountId);
-
-        // Assert
-        var expectedTransactionViewModels = result.ToList();
-        expectedTransactionViewModels.Should().NotBeNull();
-        expectedTransactionViewModels.Should().HaveCount(1);
-
-        var transaction = expectedTransactionViewModels.First();
-        transaction.AccountId.Should().Be(accountId);
-        transaction.UserId.Should().Be(userId);
-        transaction.RecurringTransactionTemplateId.Should().Be(templateId);
-        transaction.Description.Should().Be("Monthly Rent");
-        transaction.ExpectedAmount.Should().Be(1500m);
-        transaction.TransactionType.Should().Be(RecurringTransactionType.Expense);
-        transaction.Category.Should().Be("Housing");
-        transaction.Status.Should().Be(ExpectedTransactionStatus.Pending);
-    }
-
-    /// <summary>
-    ///     Verifies that GetTransactionsByAccountAsync handles past and future transactions correctly, returning them all.
-    ///     (EN)<br />
-    ///     Xác minh rằng GetTransactionsByAccountAsync xử lý đúng các giao dịch quá khứ và tương lai, trả về tất cả chúng.
-    ///     (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetTransactionsByAccountAsync_ShouldHandlePastAndFutureTransactions()
-    {
-        // Arrange
-        var accountId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-        var today = DateTime.UtcNow.Date;
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Past Transaction",
-                ExpectedAmount = 1000m,
-                Status = ExpectedTransactionStatus.Confirmed,
-                ExpectedDate = today.AddDays(-10)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Today Transaction",
-                ExpectedAmount = 1500m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = today
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Future Transaction",
-                ExpectedAmount = 2000m,
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = today.AddDays(10)
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.GetTransactionsByAccountAsync(accountId);
-
-        // Assert
-        var expectedTransactionViewModels = result.ToList();
-        expectedTransactionViewModels.Should().NotBeNull();
-        expectedTransactionViewModels.Should().HaveCount(3);
-
-        var resultList = expectedTransactionViewModels.ToList();
-        resultList[0].Description.Should().Be("Past Transaction"); // Earliest date
-        resultList[1].Description.Should().Be("Today Transaction"); // Middle date
-        resultList[2].Description.Should().Be("Future Transaction"); // Latest date
-    }
-
-    /// <summary>
-    ///     Verifies that GetTransactionsByAccountAsync handles multiple transaction types (Income, Expense). (EN)<br />
-    ///     Xác minh rằng GetTransactionsByAccountAsync xử lý nhiều loại giao dịch (Thu nhập, Chi phí). (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetTransactionsByAccountAsync_ShouldHandleMultipleTransactionTypes()
-    {
-        // Arrange
-        var accountId = Guid.CreateVersion7();
-        var userId = Guid.CreateVersion7();
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Salary Income",
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Salary",
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(5)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                AccountId = accountId,
-                UserId = userId,
-                Description = "Rent Expense",
-                ExpectedAmount = 1500m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Housing",
-                Status = ExpectedTransactionStatus.Pending,
-                ExpectedDate = DateTime.UtcNow.AddDays(10)
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.GetTransactionsByAccountAsync(accountId);
-
-        // Assert
-        var expectedTransactionViewModels = result.ToList();
-        expectedTransactionViewModels.Should().NotBeNull();
-        expectedTransactionViewModels.Should().HaveCount(2);
-        expectedTransactionViewModels.Should().Contain(t => t.TransactionType == RecurringTransactionType.Income);
-        expectedTransactionViewModels.Should().Contain(t => t.TransactionType == RecurringTransactionType.Expense);
-
-        var incomeTransaction =
-            expectedTransactionViewModels.First(t => t.TransactionType == RecurringTransactionType.Income);
-        incomeTransaction.Description.Should().Be("Salary Income");
-        incomeTransaction.ExpectedAmount.Should().Be(5000m);
-        incomeTransaction.Category.Should().Be("Salary");
-
-        var expenseTransaction =
-            expectedTransactionViewModels.First(t => t.TransactionType == RecurringTransactionType.Expense);
-        expenseTransaction.Description.Should().Be("Rent Expense");
-        expenseTransaction.ExpectedAmount.Should().Be(1500m);
-        expenseTransaction.Category.Should().Be("Housing");
+        result.AccountName.Should().BeNullOrEmpty();
+        result.AccountType.Should().BeNull();
+        result.TemplateName.Should().BeNullOrEmpty();
+        result.DisplayStatus.Should().Be(4);
+        result.AccountId.Should().Be(AccountId);
+        result.RecurringTransactionTemplateId.Should().Be(TemplateId);
     }
 }

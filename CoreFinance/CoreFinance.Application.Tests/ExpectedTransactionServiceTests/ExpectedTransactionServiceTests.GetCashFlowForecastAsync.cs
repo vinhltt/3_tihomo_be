@@ -1,383 +1,90 @@
-using CoreFinance.Application.Services;
-using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
-using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using Microsoft.Extensions.Logging;
-using MockQueryable;
-using Moq;
 
 namespace CoreFinance.Application.Tests.ExpectedTransactionServiceTests;
 
-/// <summary>
-///     Contains test cases for the GetCashFlowForecastAsync method of ExpectedTransactionService. (EN)<br />
-///     Chứa các trường hợp kiểm thử cho phương thức GetCashFlowForecastAsync của ExpectedTransactionService. (VI)
-/// </summary>
-// Tests for the GetCashFlowForecastAsync method of ExpectedTransactionService
 public partial class ExpectedTransactionServiceTests
 {
     /// <summary>
-    ///     Verifies that GetCashFlowForecastAsync returns a positive cash flow when income exceeds expenses within the date
-    ///     range. (EN)<br />
-    ///     Xác minh rằng GetCashFlowForecastAsync trả về dòng tiền dương khi thu nhập vượt quá chi phí trong phạm vi ngày.
-    ///     (VI)
+    ///     (EN) Cash-flow forecasts preserve positive, negative, income-only, expense-only, and balanced totals.<br />
+    ///     (VI) Dự báo dòng tiền giữ kết quả dương, âm, chỉ thu, chỉ chi và cân bằng.
     /// </summary>
-    [Fact]
-    public async Task GetCashFlowForecastAsync_ShouldReturnPositiveCashFlow_WhenIncomeExceedsExpenses()
+    [Theory]
+    [InlineData(5000, 3500, 1500)]
+    [InlineData(2000, 4500, -2500)]
+    [InlineData(5000, 0, 5000)]
+    [InlineData(0, 3500, -3500)]
+    [InlineData(100, 100, 0)]
+    public async Task GetCashFlowForecastAsync_ShouldReturnNetPendingAmount_WhenIncomeAndExpenseTotalsDiffer(
+        int income, int expense, int net)
     {
         // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
+        var rows = new List<ExpectedTransaction>();
+        if (income > 0)
         {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(15),
-                ExpectedAmount = 1500m,
-                TransactionType = RecurringTransactionType.Expense,
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var expectedCashFlow = 5000m - 2000m - 1500m; // Income - Expenses = 1500
+            rows.Add(Expected(1, amount: income * 0.4m, type: RecurringTransactionType.Income));
+            rows.Add(Expected(2, 7, amount: income * 0.6m, type: RecurringTransactionType.Income));
+        }
+        if (expense > 0)
+        {
+            rows.Add(Expected(3, amount: expense * 0.25m));
+            rows.Add(Expected(4, 7, amount: expense * 0.75m));
+        }
+        var fixture = CreateFixture(rows.ToArray());
 
         // Act
-        var result = await service.GetCashFlowForecastAsync(userId, startDate, endDate);
+        var result = await fixture.Service.GetCashFlowForecastAsync(OwnerId, Today, Today.AddDays(7));
 
         // Assert
-        result.Should().Be(expectedCashFlow);
+        result.Should().Be(net);
     }
 
     /// <summary>
-    ///     Verifies that GetCashFlowForecastAsync returns a negative cash flow when expenses exceed income within the date
-    ///     range. (EN)<br />
-    ///     Xác minh rằng GetCashFlowForecastAsync trả về dòng tiền âm khi chi phí vượt quá thu nhập trong phạm vi ngày. (VI)
+    ///     (EN) Forecasts retain overdue Pending amounts and whole date boundaries, excluding terminal and transfer rows.<br />
+    ///     (VI) Dự báo giữ số tiền Pending quá hạn và trọn ngày biên, loại kỳ kết thúc và chuyển khoản.
     /// </summary>
     [Fact]
-    public async Task GetCashFlowForecastAsync_ShouldReturnNegativeCashFlow_WhenExpensesExceedIncome()
+    public async Task GetCashFlowForecastAsync_ShouldCountOverdueWithinInclusiveDates_WhenStatusesAndDatesAreMixed()
     {
         // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Income,
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 3000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(15),
-                ExpectedAmount = 1500m,
-                TransactionType = RecurringTransactionType.Expense,
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var expectedCashFlow = 2000m - 3000m - 1500m; // Income - Expenses = -2500
+        var lastDay = Expected(2, 7, amount: 1500m);
+        lastDay.ExpectedDate = lastDay.ExpectedDate.AddHours(23).AddMinutes(59);
+        var overdue = Expected(1, -1, amount: 5000m, type: RecurringTransactionType.Income);
+        var fixture = CreateFixture(overdue, lastDay,
+            Expected(3, -2, amount: 8000m, type: RecurringTransactionType.Income),
+            Expected(4, 8, amount: 9000m),
+            Expected(5, status: ExpectedTransactionStatus.Confirmed, amount: 2000m),
+            Expected(6, status: ExpectedTransactionStatus.Cancelled, amount: 3000m),
+            Expected(7, status: ExpectedTransactionStatus.Completed, amount: 4000m),
+            Expected(8, amount: 7000m, type: RecurringTransactionType.Transfer));
 
         // Act
-        var result = await service.GetCashFlowForecastAsync(userId, startDate, endDate);
+        var result = await fixture.Service.GetCashFlowForecastAsync(OwnerId,
+            Today.AddDays(-1).AddHours(12), Today.AddDays(7).AddHours(12));
 
         // Assert
-        result.Should().Be(expectedCashFlow);
+        result.Should().Be(3500m);
+        overdue.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        overdue.ProcessedAt.Should().BeNull();
     }
 
     /// <summary>
-    ///     Verifies that GetCashFlowForecastAsync returns zero when there are no transactions within the specified date range.
-    ///     (EN)<br />
-    ///     Xác minh rằng GetCashFlowForecastAsync trả về không khi không có giao dịch nào trong phạm vi ngày được chỉ định.
-    ///     (VI)
+    ///     (EN) Empty or entirely out-of-range data produces zero cash flow.<br />
+    ///     (VI) Dữ liệu rỗng hoặc hoàn toàn ngoài phạm vi trả dòng tiền bằng không.
     /// </summary>
-    [Fact]
-    public async Task GetCashFlowForecastAsync_ShouldReturnZero_WhenNoTransactionsInDateRange()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetCashFlowForecastAsync_ShouldReturnZero_WhenNoPeriodIsInRange(bool outside)
     {
         // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(-10), // Outside date range
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = endDate.AddDays(10), // Outside date range
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var fixture = CreateFixture(outside ? [Expected(1, -10), Expected(2, 50)] : []);
 
         // Act
-        var result = await service.GetCashFlowForecastAsync(userId, startDate, endDate);
+        var result = await fixture.Service.GetCashFlowForecastAsync(OwnerId, Today, Today.AddDays(7));
 
         // Assert
         result.Should().Be(0m);
-    }
-
-    /// <summary>
-    ///     Verifies that GetCashFlowForecastAsync ignores non-pending transactions when calculating cash flow. (EN)<br />
-    ///     Xác minh rằng GetCashFlowForecastAsync bỏ qua các giao dịch không ở trạng thái đang chờ xử lý khi tính toán dòng
-    ///     tiền. (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetCashFlowForecastAsync_ShouldIgnoreNonPendingTransactions()
-    {
-        // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Status = ExpectedTransactionStatus.Pending // Should be included
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Status = ExpectedTransactionStatus.Confirmed // Should be ignored
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(15),
-                ExpectedAmount = 1500m,
-                TransactionType = RecurringTransactionType.Expense,
-                Status = ExpectedTransactionStatus.Cancelled // Should be ignored
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var expectedCashFlow = 5000m; // Only pending income transaction
-
-        // Act
-        var result = await service.GetCashFlowForecastAsync(userId, startDate, endDate);
-
-        // Assert
-        result.Should().Be(expectedCashFlow);
-    }
-
-    /// <summary>
-    ///     Verifies that GetCashFlowForecastAsync filters transactions by User ID when calculating cash flow. (EN)<br />
-    ///     Xác minh rằng GetCashFlowForecastAsync lọc các giao dịch theo ID người dùng khi tính toán dòng tiền. (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetCashFlowForecastAsync_ShouldFilterByUserId()
-    {
-        // Arrange
-        var userId = Guid.CreateVersion7();
-        var otherUserId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = otherUserId, // Different user
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 10000m,
-                TransactionType = RecurringTransactionType.Income,
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var expectedCashFlow = 5000m; // Only the transaction for the specified user
-
-        // Act
-        var result = await service.GetCashFlowForecastAsync(userId, startDate, endDate);
-
-        // Assert
-        result.Should().Be(expectedCashFlow);
-    }
-
-    /// <summary>
-    ///     Verifies that GetCashFlowForecastAsync returns the correct sum when only income transactions exist within the date
-    ///     range. (EN)<br />
-    ///     Xác minh rằng GetCashFlowForecastAsync trả về tổng đúng khi chỉ có các giao dịch thu nhập tồn tại trong phạm vi
-    ///     ngày. (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetCashFlowForecastAsync_ShouldReturnZero_WhenOnlyIncomeTransactionsExist()
-    {
-        // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 3000m,
-                TransactionType = RecurringTransactionType.Income,
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(15),
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Income,
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var expectedCashFlow = 3000m + 2000m; // Total income = 5000
-
-        // Act
-        var result = await service.GetCashFlowForecastAsync(userId, startDate, endDate);
-
-        // Assert
-        result.Should().Be(expectedCashFlow);
     }
 }

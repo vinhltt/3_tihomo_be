@@ -22,7 +22,7 @@ public partial class RecurringTransactionTemplateServiceTests
         repoMock.Setup(r => r.GetNoTrackingEntities()).Returns(mock);
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
-        return new RecurringTransactionTemplateService(TestHelpers.CreateMapper(), uow.Object, new Mock<ILogger<RecurringTransactionTemplateService>>().Object);
+        return CreateService(uow.Object, new Mock<ILogger<RecurringTransactionTemplateService>>().Object);
     }
 
     private static RecurringTransactionTemplate Make(string n) => new RecurringTransactionTemplate { Id = Guid.CreateVersion7(), Name = n };

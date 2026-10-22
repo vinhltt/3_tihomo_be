@@ -1,5 +1,8 @@
 ﻿using CoreFinance.Domain.BaseRepositories;
+using CoreFinance.Domain.BaseRepositories.Systems;
 using CoreFinance.Domain.Entities;
+using CoreFinance.Infrastructure;
+using CoreFinance.Infrastructure.Repositories.Systems;
 using CoreFinance.Infrastructure.Repositories.Base;
 using Shared.Contracts.Extensions;
 
@@ -21,6 +24,12 @@ public static class RepositoryExtensions
     /// </param>
     public static void AddRepositories(this IServiceCollection services)
     {
+        // One scoped owner context; the read interface aliases the same instance so a background initializer and the
+        // repositories it resolves always see the same owner.
+        services.AddScoped<CurrentUserContext>();
+        services.AddScoped<ICurrentUserContext>(sp => sp.GetRequiredService<CurrentUserContext>());
+
+        services.AddScoped<IRecurringGenerationSystemRepository, RecurringGenerationSystemRepository>();
         services.AddProxiedScoped<IBaseRepository<Account, Guid>, BaseRepository<Account, Guid>>();
         services.AddProxiedScoped<IBaseRepository<Transaction, Guid>, BaseRepository<Transaction, Guid>>();
         services.AddProxiedScoped<IBaseRepository<ExpectedTransaction, Guid>, BaseRepository<ExpectedTransaction, Guid>>();

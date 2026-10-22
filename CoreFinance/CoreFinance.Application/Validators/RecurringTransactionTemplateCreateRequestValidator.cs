@@ -23,5 +23,7 @@ public class
         RuleFor(x => x.StartDate).NotEmpty();
         RuleFor(x => x.Frequency).IsInEnum();
         RuleFor(x => x.TransactionType).IsInEnum();
+        RuleFor(x => x.CustomIntervalDays).GreaterThan(0).When(x => x.CustomIntervalDays.HasValue);
+        RuleFor(x => x.DaysInAdvance).InclusiveBetween(1, 365);
     }
 }

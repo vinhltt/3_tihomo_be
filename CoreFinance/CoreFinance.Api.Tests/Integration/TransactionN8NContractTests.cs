@@ -18,7 +18,6 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
     private readonly ITestOutputHelper _output;
     private readonly string _testDatabaseName;
     private readonly Guid _testUserId;
-    private string? _testApiKey;
     private Account? _testAccount;
 
     public TransactionN8NContractTests(WebApplicationFactory<Program> factory, ITestOutputHelper output)
@@ -69,8 +68,6 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         await context.Database.EnsureCreatedAsync();
         await CreateTestAccountAsync(context);
 
-        // Setup API Key authentication (simulating n8n workflow)
-        _testApiKey = "tihomo_n8n_workflow_api_key";
         _client.DefaultRequestHeaders.Authorization = TestJwt.Bearer(_testUserId);
 
         _output.WriteLine($"Test initialized với Account: {_testAccount!.Name}");

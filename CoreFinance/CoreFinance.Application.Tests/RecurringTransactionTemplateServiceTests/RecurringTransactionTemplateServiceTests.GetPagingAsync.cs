@@ -45,7 +45,7 @@ public partial class RecurringTransactionTemplateServiceTests
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
 
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -102,7 +102,7 @@ public partial class RecurringTransactionTemplateServiceTests
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
 
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -153,7 +153,7 @@ public partial class RecurringTransactionTemplateServiceTests
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
 
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -203,7 +203,7 @@ public partial class RecurringTransactionTemplateServiceTests
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
 
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -255,7 +255,7 @@ public partial class RecurringTransactionTemplateServiceTests
         unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -298,7 +298,7 @@ public partial class RecurringTransactionTemplateServiceTests
         unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -334,7 +334,7 @@ public partial class RecurringTransactionTemplateServiceTests
         unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -380,7 +380,7 @@ public partial class RecurringTransactionTemplateServiceTests
         unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -425,7 +425,7 @@ public partial class RecurringTransactionTemplateServiceTests
         unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
