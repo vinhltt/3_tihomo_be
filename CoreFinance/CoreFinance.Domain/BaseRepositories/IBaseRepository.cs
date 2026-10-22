@@ -37,7 +37,7 @@ public interface IBaseRepository<TEntity, in TKey> where TEntity : UserOwnedEnti
     ///     (EN)<br />
     ///     Một task biểu thị hoạt động bất đồng bộ, chứa số lượng mục trạng thái đã ghi vào cơ sở dữ liệu. (VI)
     /// </returns>
-    Task<int> CreateAsync(TEntity entity);
+    Task<int> CreateAsync(TEntity entity, CancellationToken cancellationToken = default);
 
     /// <summary>
     ///     Updates an existing entity asynchronously. (EN)<br />
@@ -52,7 +52,7 @@ public interface IBaseRepository<TEntity, in TKey> where TEntity : UserOwnedEnti
     ///     (EN)<br />
     ///     Một task biểu thị hoạt động bất đồng bộ, chứa số lượng mục trạng thái đã ghi vào cơ sở dữ liệu. (VI)
     /// </returns>
-    Task<int> UpdateAsync(TEntity entity);
+    Task<int> UpdateAsync(TEntity entity, CancellationToken cancellationToken = default);
 
     /// <summary>
     ///     Updates a collection of existing entities asynchronously. (EN)<br />
@@ -156,6 +156,31 @@ public interface IBaseRepository<TEntity, in TKey> where TEntity : UserOwnedEnti
     ///     Một task biểu thị hoạt động bất đồng bộ, chứa thực thể nếu tìm thấy, ngược lại là null. (VI)
     /// </returns>
     Task<TEntity?> GetByIdAsync(TKey id, params Expression<Func<TEntity, object>>[] includes);
+
+    /// <summary>
+    ///     Retrieves a tracked entity of the current owner by its identifier asynchronously, including specified navigation
+    ///     properties, observing the cancellation token. (EN)<br />
+    ///     Truy xuất một thực thể được theo dõi của owner hiện tại bằng mã định danh của nó một cách bất đồng bộ, bao gồm
+    ///     các thuộc tính điều hướng được chỉ định, có tôn trọng token hủy. (VI)
+    /// </summary>
+    /// <param name="id">
+    ///     The identifier of the entity. (EN)<br />
+    ///     Mã định danh của thực thể. (VI)
+    /// </param>
+    /// <param name="cancellationToken">
+    ///     A token to cancel the query. (EN)<br />
+    ///     Token dùng để hủy truy vấn. (VI)
+    /// </param>
+    /// <param name="includes">
+    ///     Navigation properties to include. (EN)<br />
+    ///     Các thuộc tính điều hướng cần bao gồm. (VI)
+    /// </param>
+    /// <returns>
+    ///     A task representing the asynchronous operation, containing the entity if found, otherwise null. (EN)<br />
+    ///     Một task biểu thị hoạt động bất đồng bộ, chứa thực thể nếu tìm thấy, ngược lại là null. (VI)
+    /// </returns>
+    Task<TEntity?> GetByIdAsync(TKey id, CancellationToken cancellationToken,
+        params Expression<Func<TEntity, object>>[] includes);
 
     /// <summary>
     ///     Retrieves an entity by its identifier without tracking asynchronously, including specified navigation properties.

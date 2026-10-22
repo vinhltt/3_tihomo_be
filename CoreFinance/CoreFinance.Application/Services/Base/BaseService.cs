@@ -6,8 +6,6 @@ using Microsoft.Extensions.Logging;
 using Shared.Contracts.Exceptions;
 using Shared.EntityFramework.BaseEfModels;
 using Shared.EntityFramework.DTOs;
-using CreateFailedException = CoreFinance.Domain.Exceptions.CreateFailedException;
-using UpdateFailedException = CoreFinance.Domain.Exceptions.UpdateFailedException;
 
 namespace CoreFinance.Application.Services.Base;
 

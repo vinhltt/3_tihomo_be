@@ -1,351 +1,224 @@
-using CoreFinance.Application.Services;
-using CoreFinance.Domain.BaseRepositories;
+using CoreFinance.Application.DTOs.ExpectedTransaction;
 using CoreFinance.Domain.Entities;
-using CoreFinance.Domain.UnitOfWorks;
+using CoreFinance.Domain.Enums;
 using FluentAssertions;
-using Microsoft.Extensions.Logging;
-using MockQueryable;
-using Moq;
 using Shared.EntityFramework.BaseEfModels;
+using Shared.EntityFramework.Enums;
 
 namespace CoreFinance.Application.Tests.ExpectedTransactionServiceTests;
 
-// Tests for the GetPagingAsync method of ExpectedTransactionService
 public partial class ExpectedTransactionServiceTests
 {
     /// <summary>
-    ///     (EN) Verifies that GetPagingAsync returns a paged result correctly.<br />
-    ///     (VI) Xác minh rằng GetPagingAsync trả về kết quả phân trang một cách chính xác.
+    ///     (EN) Default date/ID ordering stays stable across page boundaries, including equal-date rows.<br />
+    ///     (VI) Thứ tự ngày/ID mặc định ổn định qua các trang, kể cả bản ghi cùng ngày.
     /// </summary>
     [Fact]
-    public async Task GetPagingAsync_ShouldReturnPagedResult()
+    public async Task GetPagingAsync_ShouldReturnStableDefaultOrder_WhenDatesTieAcrossPages()
     {
         // Arrange
-        var expectedTransactions = new List<ExpectedTransaction>
+        var fixture = CreateFixture(Expected(5, 7), Expected(4), Expected(1, 7), Expected(3), Expected(2, -1));
+
+        // Act
+        var first = await fixture.Service.GetPagingAsync(new FilterBodyRequest
         {
-            new()
+            Pagination = new Pagination { PageIndex = 1, PageSize = 2 }
+        });
+        var second = await fixture.Service.GetPagingAsync(new FilterBodyRequest
+        {
+            Pagination = new Pagination { PageIndex = 2, PageSize = 2 }
+        });
+        var last = await fixture.Service.GetPagingAsync(new FilterBodyRequest
+        {
+            Pagination = new Pagination { PageIndex = 3, PageSize = 2 }
+        });
+
+        // Assert
+        first!.Data!.Select(t => t.Id).Should().Equal(Id(2), Id(3));
+        second!.Data!.Select(t => t.Id).Should().Equal(Id(4), Id(1));
+        last!.Data!.Select(t => t.Id).Should().Equal(Id(5));
+        first.Pagination.TotalRow.Should().Be(5);
+        second.Pagination.TotalRow.Should().Be(5);
+        last.Pagination.TotalRow.Should().Be(5);
+        first.Pagination.PageCount.Should().Be(3);
+        second.Pagination.PageCount.Should().Be(3);
+        last.Pagination.PageCount.Should().Be(3);
+        last.Pagination.PageIndex.Should().Be(3);
+        last.Pagination.PageSize.Should().Be(2);
+    }
+
+    /// <summary>
+    ///     (EN) Custom ordering receives an ID tie-breaker without replacing the requested primary order.<br />
+    ///     (VI) Thứ tự tùy chọn có ID phụ ổn định mà không thay tiêu chí chính được yêu cầu.
+    /// </summary>
+    [Fact]
+    public async Task GetPagingAsync_ShouldKeepCustomOrderAndStableTies_WhenCallerOmitsIdOrder()
+    {
+        // Arrange
+        var fixture = CreateFixture(Expected(2, amount: 500m), Expected(3, amount: 200m),
+            Expected(1, amount: 500m), Expected(4, amount: 700m));
+        var request = new FilterBodyRequest
+        {
+            Orders = [new SortDescriptor { Field = nameof(ExpectedTransactionViewModel.ExpectedAmount), Direction = SortDirection.Desc }],
+            Pagination = new Pagination { PageIndex = 2, PageSize = 2 }
+        };
+
+        // Act
+        var result = await fixture.Service.GetPagingAsync(request);
+
+        // Assert
+        result!.Data!.Select(t => t.Id).Should().Equal(Id(2), Id(3));
+        result.Pagination.TotalRow.Should().Be(4);
+        result.Pagination.PageCount.Should().Be(2);
+    }
+
+    /// <summary>
+    ///     (EN) An explicit descending ID tie-breaker is honored rather than overwritten by the default.<br />
+    ///     (VI) ID phụ giảm dần được truyền rõ ràng được giữ, không bị mặc định ghi đè.
+    /// </summary>
+    [Fact]
+    public async Task GetPagingAsync_ShouldHonorExplicitIdOrder_WhenCallerProvidesTieBreaker()
+    {
+        // Arrange
+        var fixture = CreateFixture(Expected(2), Expected(1), Expected(3));
+        var request = new FilterBodyRequest
+        {
+            Orders =
+            [
+                new SortDescriptor { Field = nameof(ExpectedTransactionViewModel.ExpectedDate), Direction = SortDirection.Asc },
+                new SortDescriptor { Field = nameof(ExpectedTransactionViewModel.Id), Direction = SortDirection.Desc }
+            ]
+        };
+
+        // Act
+        var result = await fixture.Service.GetPagingAsync(request);
+
+        // Assert
+        result!.Data!.Select(t => t.Id).Should().Equal(Id(3), Id(2), Id(1));
+    }
+
+    /// <summary>
+    ///     (EN) Search matches description, category, or owned template text case-insensitively and handles null text.<br />
+    ///     (VI) Tìm kiếm mô tả, danh mục hoặc tên mẫu cùng chủ không phân biệt hoa thường và xử lý text null.
+    /// </summary>
+    [Theory]
+    [InlineData("Description")]
+    [InlineData("Category")]
+    [InlineData("TemplateName")]
+    public async Task GetPagingAsync_ShouldSearchConsumerText_WhenSearchIsCaseInsensitive(string field)
+    {
+        // Arrange
+        var match = Expected(1);
+        match.Description = field == "Description" ? "Monthly NEEDLE bill" : null;
+        match.Category = field == "Category" ? "NEEDLE utilities" : null;
+        if (field == "TemplateName")
+            match.RecurringTransactionTemplate = new RecurringTransactionTemplate
             {
-                Id = Guid.CreateVersion7(), Description = "Transaction 1", Category = "Food",
-                ExpectedDate = DateTime.UtcNow.AddDays(1)
-            },
-            new()
+                Id = TemplateId, UserId = OwnerId, Name = "NEEDLE subscription"
+            };
+        var emptyText = Expected(2);
+        emptyText.Description = null;
+        emptyText.Category = null;
+        var foreignNavigation = Expected(3);
+        foreignNavigation.Description = null;
+        foreignNavigation.Category = null;
+        foreignNavigation.RecurringTransactionTemplate = new RecurringTransactionTemplate
+        {
+            Id = Id(50), UserId = OtherOwnerId, Name = "Private NEEDLE template"
+        };
+        var fixture = CreateFixture(emptyText, foreignNavigation, match);
+
+        // Act
+        var result = await fixture.Service.GetPagingAsync(new FilterBodyRequest { SearchValue = "needle" });
+
+        // Assert
+        result!.Data!.Select(t => t.Id).Should().Equal(Id(1));
+        result.Pagination.TotalRow.Should().Be(1);
+    }
+
+    /// <summary>
+    ///     (EN) Missing or empty search input leaves consumer-visible rows available.<br />
+    ///     (VI) Đầu vào tìm kiếm thiếu hoặc rỗng giữ các bản ghi có thể hiển thị.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task GetPagingAsync_ShouldReturnAllRows_WhenSearchIsNotProvided(string? search)
+    {
+        // Arrange
+        var fixture = CreateFixture(Expected(2, 7), Expected(1));
+
+        // Act
+        var result = await fixture.Service.GetPagingAsync(new FilterBodyRequest { SearchValue = search });
+
+        // Assert
+        result!.Data!.Select(t => t.Id).Should().Equal(Id(1), Id(2));
+        result.Pagination.TotalRow.Should().Be(2);
+    }
+
+    /// <summary>
+    ///     (EN) Derived display status separates overdue Pending periods from current Pending and all terminal states.<br />
+    ///     (VI) Nhãn dẫn xuất tách Pending quá hạn khỏi Pending còn hạn và mọi trạng thái kết thúc.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 2, 3)]
+    [InlineData(1, 4, 0)]
+    [InlineData(2, 5, 0)]
+    [InlineData(3, 6, 0)]
+    [InlineData(4, 1, 0)]
+    public async Task GetPagingAsync_ShouldFilterAndCountDisplayStatus_WhenLifecycleStatesAreMixed(
+        int displayStatus, int firstId, int secondId)
+    {
+        // Arrange
+        var overdue = Expected(1, -1);
+        var fixture = CreateFixture(Expected(6, -1, ExpectedTransactionStatus.Completed), Expected(3, 7),
+            Expected(5, -1, ExpectedTransactionStatus.Cancelled),
+            Expected(4, -1, ExpectedTransactionStatus.Confirmed), Expected(2), overdue);
+        var request = new FilterBodyRequest
+        {
+            Filter = new FilterRequest
             {
-                Id = Guid.CreateVersion7(), Description = "Transaction 2", Category = "Entertainment",
-                ExpectedDate = DateTime.UtcNow.AddDays(2)
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(), Description = "Transaction 3", Category = "Transport",
-                ExpectedDate = DateTime.UtcNow.AddDays(3)
+                Details = [new FilterDetailsRequest
+                {
+                    AttributeName = nameof(ExpectedTransactionViewModel.DisplayStatus), Value = displayStatus.ToString(),
+                    FilterType = FilterType.Equal
+                }]
             }
         };
-        var pageSize = 2;
-        var pageIndex = 1;
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var request = new FilterBodyRequest
-        {
-            SearchValue = "", // Empty search value
-            Pagination = new Pagination { PageIndex = pageIndex, PageSize = pageSize }
-        };
+        var expectedIds = secondId > 0 ? new[] { Id(firstId), Id(secondId) } : new[] { Id(firstId) };
 
         // Act
-        var result = await service.GetPagingAsync(request);
+        var result = await fixture.Service.GetPagingAsync(request);
 
         // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-        result.Data.Count().Should().Be(pageSize); // PageSize = 2
-        result.Pagination.TotalRow.Should().Be(expectedTransactions.Count); // Total records
-        result.Pagination.PageSize.Should().Be(pageSize);
-        result.Pagination.PageIndex.Should().Be(pageIndex);
+        result!.Data!.Select(t => t.Id).Should().Equal(expectedIds);
+        result.Data.Should().OnlyContain(t => t.DisplayStatus == displayStatus);
+        result.Pagination.TotalRow.Should().Be(expectedIds.Length);
+        overdue.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        overdue.ProcessedAt.Should().BeNull();
     }
 
     /// <summary>
-    ///     (EN) Verifies that GetPagingAsync filters results by description.<br />
-    ///     (VI) Xác minh rằng GetPagingAsync lọc kết quả theo mô tả.
+    ///     (EN) Display-status ordering acts on the complete filtered source before the page is selected.<br />
+    ///     (VI) Sắp theo nhãn trạng thái tác động toàn nguồn đã lọc trước khi chọn trang.
     /// </summary>
     [Fact]
-    public async Task GetPagingAsync_ShouldFilterByDescription()
+    public async Task GetPagingAsync_ShouldOrderDerivedStatusBeforePaging_WhenCallerSortsDisplayStatus()
     {
         // Arrange
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new() { Id = Guid.CreateVersion7(), Description = "Unique Description", Category = "Food" },
-            new() { Id = Guid.CreateVersion7(), Description = "Another Description", Category = "Entertainment" },
-            new() { Id = Guid.CreateVersion7(), Description = "Different Description", Category = "Transport" }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
+        var fixture = CreateFixture(Expected(3), Expected(2, -1, ExpectedTransactionStatus.Completed), Expected(1, -1));
         var request = new FilterBodyRequest
         {
-            SearchValue = "Unique" // Should match only the first transaction
+            Orders = [new SortDescriptor { Field = nameof(ExpectedTransactionViewModel.DisplayStatus), Direction = SortDirection.Desc }],
+            Pagination = new Pagination { PageIndex = 1, PageSize = 1 }
         };
 
         // Act
-        var result = await service.GetPagingAsync(request);
+        var result = await fixture.Service.GetPagingAsync(request);
 
         // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-        result.Data.Should().ContainSingle();
-        result.Data.First().Description.Should().Contain("Unique");
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GetPagingAsync filters results by category.<br />
-    ///     (VI) Xác minh rằng GetPagingAsync lọc kết quả theo danh mục.
-    /// </summary>
-    [Fact]
-    public async Task GetPagingAsync_ShouldFilterByCategory()
-    {
-        // Arrange
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 1", Category = "UniqueCategory" },
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 2", Category = "Entertainment" },
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 3", Category = "Transport" }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var request = new FilterBodyRequest
-        {
-            SearchValue = "UniqueCategory" // Should match only the first transaction
-        };
-
-        // Act
-        var result = await service.GetPagingAsync(request);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-        result.Data.Should().ContainSingle();
-        result.Data.First().Category.Should().Be("UniqueCategory");
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GetPagingAsync filters results by search value in a case-insensitive manner.<br />
-    ///     (VI) Xác minh rằng GetPagingAsync lọc kết quả theo giá trị tìm kiếm mà không phân biệt chữ hoa chữ thường.
-    /// </summary>
-    [Fact]
-    public async Task GetPagingAsync_ShouldFilterBySearchValue_CaseInsensitive()
-    {
-        // Arrange
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new() { Id = Guid.CreateVersion7(), Description = "Test Expected Transaction One", Category = "Food" },
-            new() { Id = Guid.CreateVersion7(), Description = "test expected transaction two", Category = "Entertainment" },
-            new() { Id = Guid.CreateVersion7(), Description = "Another Expected Transaction", Category = "TEST Category" }
-        }.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactions);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var request = new FilterBodyRequest
-        {
-            SearchValue = "test"
-        };
-
-        // Act
-        var result = await service.GetPagingAsync(request);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-        result.Data.Count().Should().Be(3); // All 3 expected transactions contain "test" (case insensitive)
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GetPagingAsync returns an empty result when the search value has no match.<br />
-    ///     (VI) Xác minh rằng GetPagingAsync trả về kết quả rỗng khi giá trị tìm kiếm không có kết quả khớp.
-    /// </summary>
-    [Fact]
-    public async Task GetPagingAsync_ShouldReturnEmpty_WhenSearchValueHasNoMatch()
-    {
-        // Arrange
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 1", Category = "Food" },
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 2", Category = "Entertainment" }
-        };
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var request = new FilterBodyRequest
-        {
-            SearchValue = "NonExistentSearchTerm"
-        };
-
-        // Act
-        var result = await service.GetPagingAsync(request);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-        result.Data.Should().BeEmpty(); // The service's Where clause should result in an empty list
-        result.Pagination.TotalRow.Should().Be(0);
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GetPagingAsync handles the case where the repository returns no data.<br />
-    ///     (VI) Xác minh rằng GetPagingAsync xử lý trường hợp repository không trả về dữ liệu.
-    /// </summary>
-    [Fact]
-    public async Task GetPagingAsync_ShouldHandleRepositoryReturningNoData()
-    {
-        // Arrange
-        var emptyExpectedTransactions = new List<ExpectedTransaction>().BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(emptyExpectedTransactions);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var request = new FilterBodyRequest
-        {
-            Pagination = new Pagination { PageIndex = 1, PageSize = 10 }
-        };
-
-        // Act
-        var result = await service.GetPagingAsync(request);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-        result.Data.Should().BeEmpty();
-        result.Pagination.TotalRow.Should().Be(0);
-        result.Pagination.PageIndex.Should().Be(1);
-        result.Pagination.PageSize.Should().Be(10);
-    }
-
-    [Fact]
-    public async Task GetPagingAsync_ShouldHandleNullSearchValue()
-    {
-        // Arrange
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 1", Category = "Food" },
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 2", Category = "Entertainment" }
-        };
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var request = new FilterBodyRequest
-        {
-            SearchValue = null, // Null search value
-            Pagination = new Pagination { PageIndex = 1, PageSize = 10 }
-        };
-
-        // Act
-        var result = await service.GetPagingAsync(request);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-        result.Data.Count().Should().Be(2); // Should return all expected transactions when search is null
-        result.Pagination.TotalRow.Should().Be(2);
-    }
-
-    [Fact]
-    public async Task GetPagingAsync_ShouldHandleEmptyStringSearchValue()
-    {
-        // Arrange
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 1", Category = "Food" },
-            new() { Id = Guid.CreateVersion7(), Description = "Transaction 2", Category = "Entertainment" }
-        };
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        var request = new FilterBodyRequest
-        {
-            SearchValue = "", // Empty string search value
-            Pagination = new Pagination { PageIndex = 1, PageSize = 10 }
-        };
-
-        // Act
-        var result = await service.GetPagingAsync(request);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Data.Should().NotBeNull();
-        result.Data.Count().Should().Be(2); // Should return all expected transactions when search is empty
-        result.Pagination.TotalRow.Should().Be(2);
+        result!.Data!.Select(t => t.Id).Should().Equal(Id(1));
+        result.Data!.Single().DisplayStatus.Should().Be(4);
+        result.Pagination.TotalRow.Should().Be(3);
     }
 }

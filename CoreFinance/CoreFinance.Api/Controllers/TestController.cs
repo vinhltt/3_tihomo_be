@@ -94,7 +94,7 @@ public class TestController(IPublishEndpoint publishEndpoint, ILogger<TestContro
             logger.LogError(ex, "Failed to publish test message - CorrelationId: {CorrelationId}, Error: {ErrorMessage}",
                 correlationId, ex.Message);
 
-            return StatusCode(500, new
+            return StatusCode(StatusCodes.Status500InternalServerError, new
             {
                 success = false,
                 correlationId,

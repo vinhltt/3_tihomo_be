@@ -1,5 +1,4 @@
 using CoreFinance.Api.Tests.Helpers;
-using System.Net.Http.Headers;
 using System.Net;
 using System.Text.Json;
 
@@ -17,7 +16,6 @@ public class AccountGetByCodeContractTests : IClassFixture<WebApplicationFactory
     private readonly ITestOutputHelper _output;
     private readonly string _testDatabaseName;
     private readonly Guid _testUserId;
-    private string? _testApiKey;
 
     // Test accounts với different codes
     private Account? _techcombankAccount;
@@ -83,8 +81,6 @@ public class AccountGetByCodeContractTests : IClassFixture<WebApplicationFactory
         await context.Database.EnsureCreatedAsync();
         await CreateTestAccountsAsync(context);
 
-        // Setup API Key authentication
-        _testApiKey = "tihomo_test_api_key_code_filter";
         _client.DefaultRequestHeaders.Authorization = TestJwt.Bearer(_testUserId);
 
         _output.WriteLine($"Test initialized with {context.Accounts.Count()} test accounts");

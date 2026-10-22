@@ -1,424 +1,93 @@
-using CoreFinance.Application.Services;
-using CoreFinance.Domain.BaseRepositories;
-using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
-using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using Microsoft.Extensions.Logging;
-using MockQueryable;
-using Moq;
 
 namespace CoreFinance.Application.Tests.ExpectedTransactionServiceTests;
 
-// Tests for the GetCategoryForecastAsync method of ExpectedTransactionService
 public partial class ExpectedTransactionServiceTests
 {
     /// <summary>
-    ///     (EN) Verifies that GetCategoryForecastAsync returns the correct category breakdown with aggregated amounts.<br />
-    ///     (VI) Xác minh rằng GetCategoryForecastAsync trả về phân tích danh mục chính xác với tổng số tiền.
+    ///     (EN) Categories aggregate repeated expenses and mixed income/expense while preserving their signs.<br />
+    ///     (VI) Danh mục gộp chi lặp và thu/chi hỗn hợp, giữ dấu của số tiền.
     /// </summary>
     [Fact]
-    public async Task GetCategoryForecastAsync_ShouldReturnCorrectCategoryBreakdown()
+    public async Task GetCategoryForecastAsync_ShouldAggregateSignedAmounts_WhenCategoriesContainMixedPeriods()
     {
         // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Salary",
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Food",
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(15),
-                ExpectedAmount = 1500m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Transport",
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(20),
-                ExpectedAmount = 800m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Food", // Same category as another expense
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var salary = Expected(1, amount: 5000m, type: RecurringTransactionType.Income);
+        salary.Category = "Salary";
+        var food = Expected(2, amount: 2000m);
+        food.Category = "Food";
+        var moreFood = Expected(3, amount: 800m);
+        moreFood.Category = "Food";
+        var transport = Expected(4, amount: 1500m);
+        transport.Category = "Transport";
+        var businessIncome = Expected(5, amount: 3000m, type: RecurringTransactionType.Income);
+        businessIncome.Category = "Business";
+        var businessExpense = Expected(6, amount: 1000m);
+        businessExpense.Category = "Business";
+        var moreBusinessIncome = Expected(7, amount: 500m, type: RecurringTransactionType.Income);
+        moreBusinessIncome.Category = "Business";
+        var fixture = CreateFixture(salary, food, moreFood, transport, businessIncome, businessExpense, moreBusinessIncome);
 
         // Act
-        var result = await service.GetCategoryForecastAsync(userId, startDate, endDate);
+        var result = await fixture.Service.GetCategoryForecastAsync(OwnerId, Today, Today.AddDays(7));
 
         // Assert
-        result.Should().NotBeNull();
-        result.Should().HaveCount(3);
-        result["Salary"].Should().Be(5000m); // Income is positive
-        result["Food"].Should().Be(-2800m); // Expenses are negative (2000 + 800)
-        result["Transport"].Should().Be(-1500m); // Expense is negative
+        result.Should().BeEquivalentTo(new Dictionary<string, decimal>
+        {
+            ["Salary"] = 5000m, ["Food"] = -2800m, ["Transport"] = -1500m, ["Business"] = 2500m
+        });
     }
 
     /// <summary>
-    ///     (EN) Verifies that GetCategoryForecastAsync ignores transactions with null or empty category.<br />
-    ///     (VI) Xác minh rằng GetCategoryForecastAsync bỏ qua các giao dịch có danh mục null hoặc rỗng.
+    ///     (EN) Categories count overdue Pending periods through the last date, excluding terminal and uncategorized rows.<br />
+    ///     (VI) Danh mục tính kỳ Pending quá hạn đến trọn ngày cuối, loại kỳ kết thúc và không có danh mục.
     /// </summary>
     [Fact]
-    public async Task GetCategoryForecastAsync_ShouldIgnoreTransactionsWithNullOrEmptyCategory()
+    public async Task GetCategoryForecastAsync_ShouldCountOnlyCategorizedPendingPeriods_WhenDatesAndStatusesAreMixed()
     {
         // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Salary",
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = null, // Should be ignored
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(15),
-                ExpectedAmount = 1500m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "", // Should be ignored
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(20),
-                ExpectedAmount = 800m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Food",
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var overdue = Expected(1, -1, amount: 300m);
+        var lastDay = Expected(2, 7, amount: 120m, type: RecurringTransactionType.Income);
+        lastDay.ExpectedDate = lastDay.ExpectedDate.AddHours(23).AddMinutes(59);
+        var noCategory = Expected(3, amount: 1000m);
+        noCategory.Category = null;
+        var emptyCategory = Expected(4, amount: 2000m);
+        emptyCategory.Category = "";
+        var fixture = CreateFixture(overdue, lastDay, noCategory, emptyCategory,
+            Expected(5, -2, amount: 4000m), Expected(6, 8, amount: 5000m),
+            Expected(7, status: ExpectedTransactionStatus.Confirmed, amount: 6000m),
+            Expected(8, status: ExpectedTransactionStatus.Cancelled, amount: 7000m),
+            Expected(9, status: ExpectedTransactionStatus.Completed, amount: 8000m));
 
         // Act
-        var result = await service.GetCategoryForecastAsync(userId, startDate, endDate);
+        var result = await fixture.Service.GetCategoryForecastAsync(OwnerId,
+            Today.AddDays(-1).AddHours(12), Today.AddDays(7).AddHours(12));
 
         // Assert
-        result.Should().NotBeNull();
-        result.Should().HaveCount(2); // Only Salary and Food categories
-        result["Salary"].Should().Be(5000m);
-        result["Food"].Should().Be(-800m);
+        result.Should().BeEquivalentTo(new Dictionary<string, decimal> { ["Utilities"] = -180m });
+        overdue.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        overdue.ProcessedAt.Should().BeNull();
     }
 
     /// <summary>
-    ///     (EN) Verifies that GetCategoryForecastAsync ignores non-pending transactions.<br />
-    ///     (VI) Xác minh rằng GetCategoryForecastAsync bỏ qua các giao dịch không ở trạng thái chờ xử lý.
+    ///     (EN) No categorized pending period yields an empty dictionary rather than invented category values.<br />
+    ///     (VI) Không có kỳ Pending có danh mục trả dictionary rỗng, không tạo giá trị danh mục giả.
     /// </summary>
-    [Fact]
-    public async Task GetCategoryForecastAsync_ShouldIgnoreNonPendingTransactions()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GetCategoryForecastAsync_ShouldReturnEmpty_WhenNoCategorizedPendingPeriodMatches(bool otherPeriods)
     {
         // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Salary",
-                Status = ExpectedTransactionStatus.Pending // Should be included
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Food",
-                Status = ExpectedTransactionStatus.Confirmed // Should be ignored
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(15),
-                ExpectedAmount = 1500m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Transport",
-                Status = ExpectedTransactionStatus.Cancelled // Should be ignored
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var noCategory = Expected(1);
+        noCategory.Category = null;
+        var fixture = CreateFixture(otherPeriods ? [noCategory, Expected(2, -10), Expected(3, 50)] : []);
 
         // Act
-        var result = await service.GetCategoryForecastAsync(userId, startDate, endDate);
+        var result = await fixture.Service.GetCategoryForecastAsync(OwnerId, Today, Today.AddDays(7));
 
         // Assert
-        result.Should().NotBeNull();
-        result.Should().HaveCount(1); // Only Salary category (pending)
-        result["Salary"].Should().Be(5000m);
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GetCategoryForecastAsync filters transactions by User ID.<br />
-    ///     (VI) Xác minh rằng GetCategoryForecastAsync lọc các giao dịch theo ID người dùng.
-    /// </summary>
-    [Fact]
-    public async Task GetCategoryForecastAsync_ShouldFilterByUserId()
-    {
-        // Arrange
-        var userId = Guid.CreateVersion7();
-        var otherUserId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Salary",
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = otherUserId, // Different user
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 10000m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Salary",
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.GetCategoryForecastAsync(userId, startDate, endDate);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Should().HaveCount(1);
-        result["Salary"].Should().Be(5000m); // Only the transaction for the specified user
-    }
-
-    /// <summary>
-    ///     Verifies that GetCategoryForecastAsync returns an empty dictionary when there are no valid transactions (within
-    ///     date range, with category, pending). (EN)<br />
-    ///     Xác minh rằng GetCategoryForecastAsync trả về một dictionary rỗng khi không có giao dịch hợp lệ nào (trong phạm vi
-    ///     ngày, có danh mục, đang chờ xử lý). (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetCategoryForecastAsync_ShouldReturnEmptyDictionary_WhenNoValidTransactions()
-    {
-        // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(-10), // Outside date range
-                ExpectedAmount = 5000m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Salary",
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 2000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = null, // No category
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.GetCategoryForecastAsync(userId, startDate, endDate);
-
-        // Assert
-        result.Should().NotBeNull();
         result.Should().BeEmpty();
-    }
-
-    /// <summary>
-    ///     Verifies that GetCategoryForecastAsync correctly handles mixed income and expense transactions within the same
-    ///     category. (EN)<br />
-    ///     Xác minh rằng GetCategoryForecastAsync xử lý đúng các giao dịch thu nhập và chi phí hỗn hợp trong cùng một danh
-    ///     mục. (VI)
-    /// </summary>
-    [Fact]
-    public async Task GetCategoryForecastAsync_ShouldHandleMixedIncomeAndExpenseInSameCategory()
-    {
-        // Arrange
-        var userId = Guid.CreateVersion7();
-        var startDate = DateTime.UtcNow.Date;
-        var endDate = startDate.AddDays(30);
-
-        var expectedTransactions = new List<ExpectedTransaction>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(5),
-                ExpectedAmount = 3000m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Business",
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(10),
-                ExpectedAmount = 1000m,
-                TransactionType = RecurringTransactionType.Expense,
-                Category = "Business", // Same category as income
-                Status = ExpectedTransactionStatus.Pending
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                UserId = userId,
-                ExpectedDate = startDate.AddDays(15),
-                ExpectedAmount = 500m,
-                TransactionType = RecurringTransactionType.Income,
-                Category = "Business", // Another income in same category
-                Status = ExpectedTransactionStatus.Pending
-            }
-        };
-
-        var expectedTransactionsMock = expectedTransactions.BuildMock();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(expectedTransactionsMock);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.GetCategoryForecastAsync(userId, startDate, endDate);
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Should().HaveCount(1);
-        result["Business"].Should().Be(2500m); // 3000 + 500 - 1000 = 2500
     }
 }

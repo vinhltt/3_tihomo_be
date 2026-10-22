@@ -1,31 +1,23 @@
 using System.Linq.Expressions;
-using System.Security.Claims;
 using CoreFinance.Domain.BaseRepositories;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Shared.EntityFramework.BaseEfModels;
 
 namespace CoreFinance.Infrastructure.Repositories.Base;
 
 /// <summary>
-///     (EN) Base class for repositories.<br />
-///     (VI) Lớp cơ sở cho các repository.
+///     (EN) Base class for repositories. Owner scoping and audit identity come from the scoped
+///     <see cref="ICurrentUserContext" />, which fails closed when no owner exists.<br />
+///     (VI) Lớp cơ sở cho các repository. Phạm vi owner và danh tính audit lấy từ <see cref="ICurrentUserContext" />
+///     theo scope, fail-closed khi không có owner.
 /// </summary>
 public class BaseRepository<TEntity, TKey>(
     CoreFinanceDbContext context,
-    IHttpContextAccessor? httpContextAccessor
+    ICurrentUserContext currentUser
 )
     : IBaseRepository<TEntity, TKey>
     where TEntity : UserOwnedEntity<TKey>
 {
-    #region ctor
-
-    public BaseRepository(CoreFinanceDbContext context) : this(context, null)
-    {
-    }
-
-    #endregion ctor
-
     #region props
 
     private DbSet<TEntity>? EntitiesDbSet { get; set; }
@@ -45,7 +37,7 @@ public class BaseRepository<TEntity, TKey>(
     {
         var query = Entities.AsNoTracking();
         query = includes.Aggregate(query, (current, include) => current.Include(include));
-        var userId = GetUserIdInHttpContext();
+        var userId = currentUser.UserId;
         query = query.Where(e => e.UserId == userId);
         return query;
     }
@@ -63,7 +55,7 @@ public class BaseRepository<TEntity, TKey>(
     {
         var query = Entities.AsNoTrackingWithIdentityResolution();
         query = includes.Aggregate(query, (current, include) => current.Include(include));
-        var userId = GetUserIdInHttpContext();
+        var userId = currentUser.UserId;
         query = query.Where(e => e.UserId == userId);
         return query;
     }
@@ -79,7 +71,7 @@ public class BaseRepository<TEntity, TKey>(
     {
         var query = Entities.AsQueryable();
         query = includes.Aggregate(query, (current, include) => current.Include(include));
-        var userId = GetUserIdInHttpContext();
+        var userId = currentUser.UserId;
         query = query.Where(e => e.UserId == userId);
         return query;
     }
@@ -110,11 +102,27 @@ public class BaseRepository<TEntity, TKey>(
     public virtual Task<TEntity?> GetByIdAsync(TKey id,
         params Expression<Func<TEntity, object>>[] includes)
     {
+        return GetByIdAsync(id, CancellationToken.None, includes);
+    }
+
+    /// <summary>
+    ///     (EN) Retrieves a tracked entity of the current owner by its identifier asynchronously, including specified
+    ///     navigation properties, observing the cancellation token.<br />
+    ///     (VI) Truy xuất một thực thể được theo dõi của owner hiện tại bằng mã định danh của nó một cách bất đồng bộ, bao
+    ///     gồm các thuộc tính điều hướng được chỉ định, có tôn trọng token hủy.
+    /// </summary>
+    /// <param name="id">The identifier of the entity. (EN)<br />Mã định danh của thực thể. (VI)</param>
+    /// <param name="cancellationToken">A token to cancel the query. (EN)<br />Token dùng để hủy truy vấn. (VI)</param>
+    /// <param name="includes">Navigation properties to include. (EN)<br />Các thuộc tính điều hướng cần bao gồm. (VI)</param>
+    /// <returns>A task representing the asynchronous operation, containing the entity if found, otherwise null.</returns>
+    public virtual Task<TEntity?> GetByIdAsync(TKey id, CancellationToken cancellationToken,
+        params Expression<Func<TEntity, object>>[] includes)
+    {
         var query = Entities.AsQueryable();
         query = includes.Aggregate(query, (current, include) => current.Include(include));
-        var userId = GetUserIdInHttpContext();
+        var userId = currentUser.UserId;
         query = query.Where(e => e.UserId == userId);
-        var entity = query.SingleOrDefaultAsync(x => x.Id!.Equals(id));
+        var entity = query.SingleOrDefaultAsync(x => x.Id!.Equals(id), cancellationToken);
         return entity;
     }
 
@@ -145,14 +153,14 @@ public class BaseRepository<TEntity, TKey>(
     ///     A task representing the asynchronous operation, containing the number of state entries written to the
     ///     database.
     /// </returns>
-    public virtual async Task<int> CreateAsync(TEntity entity)
+    public virtual async Task<int> CreateAsync(TEntity entity, CancellationToken cancellationToken = default)
     {
         ValidateAndThrow(entity);
-        var currentUserName = GetUserNameInHttpContext();
-        var currentUserId = GetUserIdInHttpContext();
+        var currentUserName = currentUser.UserName;
+        var currentUserId = currentUser.UserId;
         entity.SetDefaultValueWithUser(currentUserName, currentUserId);
-        await Entities.AddAsync(entity);
-        var countAffect = await context.SaveChangesAsync();
+        await Entities.AddAsync(entity, cancellationToken);
+        var countAffect = await context.SaveChangesAsync(cancellationToken);
         return countAffect;
     }
 
@@ -168,8 +176,8 @@ public class BaseRepository<TEntity, TKey>(
     public virtual async Task<int> CreateAsync(List<TEntity> entities)
     {
         ValidateAndThrow(entities);
-        var currentUserName = GetUserNameInHttpContext();
-        var currentUserId = GetUserIdInHttpContext();
+        var currentUserName = currentUser.UserName;
+        var currentUserId = currentUser.UserId;
         entities.ForEach(e => { e.SetDefaultValueWithUser(currentUserName, currentUserId); });
 
         await Entities.AddRangeAsync(entities);
@@ -186,14 +194,14 @@ public class BaseRepository<TEntity, TKey>(
     ///     A task representing the asynchronous operation, containing the number of state entries written to the
     ///     database.
     /// </returns>
-    public virtual Task<int> UpdateAsync(TEntity entity)
+    public virtual Task<int> UpdateAsync(TEntity entity, CancellationToken cancellationToken = default)
     {
         ValidateAndThrow(entity);
-        var currentUserName = GetUserNameInHttpContext();
+        var currentUserName = currentUser.UserName;
         var entry = context.Entry(entity);
         entity.SetValueUpdate(currentUserName);
         if (entry.State < EntityState.Added) entry.State = EntityState.Modified;
-        var countAffect = context.SaveChangesAsync();
+        var countAffect = context.SaveChangesAsync(cancellationToken);
         return countAffect;
     }
 
@@ -208,7 +216,7 @@ public class BaseRepository<TEntity, TKey>(
     /// </returns>
     public virtual Task<int> UpdateAsync(IEnumerable<TEntity> entities)
     {
-        var currentUserName = GetUserNameInHttpContext();
+        var currentUserName = currentUser.UserName;
         var baseEntities = entities.ToList();
         baseEntities.ForEach(e =>
         {
@@ -316,103 +324,6 @@ public class BaseRepository<TEntity, TKey>(
     #region private
 
     protected DbSet<TEntity> Entities => EntitiesDbSet ??= context.Set<TEntity>();
-
-    /// <summary>
-    ///     (EN) Retrieves the user ID from the HTTP context.<br />
-    ///     (VI) Truy xuất ID người dùng từ ngữ cảnh HTTP.
-    /// </summary>
-    /// <returns>The user ID as Guid.</returns>
-    /// <exception cref="UnauthorizedAccessException">
-    ///     Thrown if the user ID is not found in claims. (EN)<br />Ném ngoại lệ nếu không tìm thấy user ID trong claims. (VI)
-    /// </exception>
-    protected Guid GetUserIdInHttpContext()
-    {
-        var userId = GetUserIdFromClaims(httpContextAccessor?.HttpContext?.User);
-        return userId;
-    }
-
-    /// <summary>
-    ///     (EN) Extracts the UserId from JWT claims.<br />
-    ///     (VI) Trích xuất UserId từ JWT claims.
-    /// </summary>
-    /// <param name="principal">The ClaimsPrincipal object from the request context</param>
-    /// <returns>UserId as Guid if found, otherwise null</returns>
-    private static Guid GetUserIdFromClaims(ClaimsPrincipal? principal)
-    {
-        if (principal == null) throw new UnauthorizedAccessException("No user context available to extract User ID.");
-        
-        // Debug: Log identity info
-        Console.WriteLine($"[DEBUG] Principal.Identity.IsAuthenticated: {principal.Identity?.IsAuthenticated}");
-        Console.WriteLine($"[DEBUG] Principal.Identity.AuthenticationType: {principal.Identity?.AuthenticationType}");
-        Console.WriteLine($"[DEBUG] Principal.Identity.Name: {principal.Identity?.Name}");
-        Console.WriteLine($"[DEBUG] Principal.Identities.Count: {principal.Identities.Count()}");
-        
-        // Check all identities
-        foreach (var identity in principal.Identities)
-        {
-            Console.WriteLine($"[DEBUG] Identity AuthenticationType: {identity.AuthenticationType}, Claims Count: {identity.Claims.Count()}");
-        }
-        
-        if (!principal.Claims.Any()) 
-        {
-            // Try to get claims from individual identities
-            var allIdentityClaims = principal.Identities.SelectMany(i => i.Claims).ToList();
-            Console.WriteLine($"[DEBUG] Claims from all identities: {allIdentityClaims.Count}");
-            
-            if (!allIdentityClaims.Any())
-            {
-                throw new UnauthorizedAccessException("principal.Claims is empty and no claims found in identities.");
-            }
-            
-            // Use claims from identities
-            var allClaims = string.Join(", ", allIdentityClaims.Select(c => $"{c.Type}:{c.Value}").ToArray());
-            Console.WriteLine($"[DEBUG] All Identity Claims: {allClaims}");
-            
-            // Try multiple claim types from identities
-            var userIdClaim = allIdentityClaims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier);
-            
-            if (userIdClaim?.Value != null && Guid.TryParse(userIdClaim.Value, out var userId))
-            {
-                Console.WriteLine($"[DEBUG] Found User ID: {userId} from identity claim: {userIdClaim.Type}");
-                return userId;
-            }
-            
-            throw new UnauthorizedAccessException($"User ID claim not found in identities. Available claims: {allClaims}");
-        }
-
-        // Debug: Log all claims from principal
-        var principalClaims = string.Join(", ", principal.Claims.Select(c => $"{c.Type}:{c.Value}").ToArray());
-        Console.WriteLine($"[DEBUG] All Principal Claims: {principalClaims}");
-
-        // Try multiple claim types that might contain the user ID
-        var principalUserIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier);
-
-        if (principalUserIdClaim?.Value != null && Guid.TryParse(principalUserIdClaim.Value, out var principalUserId))
-        {
-            Console.WriteLine($"[DEBUG] Found User ID: {principalUserId} from principal claim: {principalUserIdClaim.Type}");
-            return principalUserId;
-        }
-        
-        throw new UnauthorizedAccessException($"User ID claim not found in principal. Available claims: {principalClaims}");
-    }
-
-    /// <summary>
-    ///     (EN) Retrieves the user name from the HTTP context.<br />
-    ///     (VI) Truy xuất tên người dùng từ ngữ cảnh HTTP.
-    /// </summary>
-    /// <returns>The user name.</returns>
-    /// <exception cref="ArgumentNullException">
-    ///     Thrown if the user name is null. (EN)<br />Ném ngoại lệ nếu tên người dùng là
-    ///     null. (VI)
-    /// </exception>
-    protected string GetUserNameInHttpContext()
-    {
-        var userName = httpContextAccessor?.HttpContext?.User
-            .FindFirst(claim => claim.Type == ClaimTypes.NameIdentifier)?.Value ?? "SystemDefault";
-        if (userName == null)
-            throw new ArgumentNullException(nameof(userName));
-        return userName;
-    }
 
     /// <summary>
     ///     (EN) Validates an entity and throws an ArgumentNullException if it is null.<br />

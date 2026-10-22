@@ -1,204 +1,220 @@
-using CoreFinance.Application.Services;
-using CoreFinance.Domain.BaseRepositories;
+using CoreFinance.Application.Enums;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
-using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using Moq;
 
 namespace CoreFinance.Application.Tests.ExpectedTransactionServiceTests;
 
-/// <summary>
-///     Contains test cases for the ConfirmExpectedTransactionAsync method of ExpectedTransactionService. (EN)<br />
-///     Chứa các trường hợp kiểm thử cho phương thức ConfirmExpectedTransactionAsync của ExpectedTransactionService. (VI)
-/// </summary>
 public partial class ExpectedTransactionServiceTests
 {
     /// <summary>
-    ///     Verifies that ConfirmExpectedTransactionAsync returns true and updates the transaction status and
-    ///     ActualTransactionId when confirmation is successful. (EN)<br />
-    ///     Xác minh rằng ConfirmExpectedTransactionAsync trả về true và cập nhật trạng thái giao dịch cùng ActualTransactionId
-    ///     khi xác nhận thành công. (VI)
+    ///     (EN) Linking an available same-owner transaction confirms even a transfer without creating a new actual.<br />
+    ///     (VI) Liên kết giao dịch cùng chủ hiện có xác nhận cả kỳ chuyển khoản mà không tạo giao dịch thực mới.
     /// </summary>
-    [Fact]
-    public async Task ConfirmExpectedTransactionAsync_ShouldReturnTrue_WhenTransactionIsConfirmedSuccessfully()
+    [Theory]
+    [InlineData(RecurringTransactionType.Income)]
+    [InlineData(RecurringTransactionType.Expense)]
+    [InlineData(RecurringTransactionType.Transfer)]
+    public async Task ConfirmExpectedTransactionAsync_ShouldConfirmWithExistingActual_WhenReferenceIsAvailable(
+        RecurringTransactionType type)
     {
         // Arrange
-        var expectedTransactionId = Guid.CreateVersion7();
-        var actualTransactionId = Guid.CreateVersion7();
-        var expectedTransaction = new ExpectedTransaction
+        var expected = Expected(1, -1, type: type);
+        var fixture = CreateFixture(expected);
+        fixture.ActualTransactions.Add(new Transaction { Id = ActualId, UserId = OwnerId, AccountId = AccountId });
+
+        // Act
+        var result = await fixture.Service.ConfirmExpectedTransactionAsync(expected.Id, ActualId);
+        var view = await fixture.Service.GetByIdAsync(expected.Id);
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.Success);
+        result.ExpectedTransactionId.Should().Be(expected.Id);
+        result.ActualTransactionId.Should().Be(ActualId);
+        view.Should().NotBeNull();
+        view!.Status.Should().Be(ExpectedTransactionStatus.Confirmed);
+        view.DisplayStatus.Should().Be(1);
+        view.ActualTransactionId.Should().Be(ActualId);
+        view.HasActualTransaction.Should().BeTrue();
+        view.ProcessedAt.Should().NotBeNull();
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) An unavailable expected reference is reported as not found, not a successful link.<br />
+    ///     (VI) Kỳ không được repository trả về được báo không tìm thấy, không phải liên kết thành công.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmExpectedTransactionAsync_ShouldReturnNotFound_WhenExpectedReferenceIsUnavailable()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+
+        // Act
+        var result = await fixture.Service.ConfirmExpectedTransactionAsync(Id(1), ActualId);
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.NotFound);
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Missing and mismatched-owner actual references are rejected by service guards only.<br />
+    ///     (VI) Tham chiếu thực thiếu hoặc khác chủ bị guard dịch vụ từ chối; không chứng minh cách ly repository.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfirmExpectedTransactionAsync_ShouldReturnNotFound_WhenActualReferenceIsMissingOrForeign(
+        bool foreign)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        if (foreign)
+            fixture.ActualTransactions.Add(new Transaction { Id = ActualId, UserId = OtherOwnerId });
+
+        // Act
+        var result = await fixture.Service.ConfirmExpectedTransactionAsync(expected.Id, ActualId);
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.NotFound);
+        expected.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        expected.ActualTransactionId.Should().BeNull();
+        expected.ProcessedAt.Should().BeNull();
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Empty actual IDs are invalid input and leave the period pending.<br />
+    ///     (VI) ID giao dịch thực rỗng là đầu vào không hợp lệ và giữ kỳ chờ xử lý.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmExpectedTransactionAsync_ShouldReturnInvalidRequest_WhenActualIdIsEmpty()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.ConfirmExpectedTransactionAsync(expected.Id, Guid.Empty);
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.InvalidRequest);
+        expected.ActualTransactionId.Should().BeNull();
+        expected.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) A visible existing link, including a tombstone, prevents reusing an actual reference.<br />
+    ///     (VI) Liên kết hiện có được trả về, kể cả kỳ đã xóa mềm, chặn dùng lại giao dịch thực.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfirmExpectedTransactionAsync_ShouldReturnConflict_WhenActualIsAlreadyLinked(bool deleted)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var linked = Expected(2, status: ExpectedTransactionStatus.Confirmed);
+        linked.ActualTransactionId = ActualId;
+        linked.IsDeleted = deleted ? "20261008090000" : null;
+        var fixture = CreateFixture(expected, linked);
+        fixture.ActualTransactions.Add(new Transaction { Id = ActualId, UserId = OwnerId });
+
+        // Act
+        var result = await fixture.Service.ConfirmExpectedTransactionAsync(expected.Id, ActualId);
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.Conflict);
+        expected.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        expected.ActualTransactionId.Should().BeNull();
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Every terminal state rejects linking without replacing its existing lifecycle data.<br />
+    ///     (VI) Mọi trạng thái kết thúc từ chối liên kết mà không thay dữ liệu vòng đời hiện có.
+    /// </summary>
+    [Theory]
+    [InlineData(ExpectedTransactionStatus.Confirmed)]
+    [InlineData(ExpectedTransactionStatus.Cancelled)]
+    [InlineData(ExpectedTransactionStatus.Completed)]
+    public async Task ConfirmExpectedTransactionAsync_ShouldReturnConflict_WhenPeriodIsNotPending(
+        ExpectedTransactionStatus status)
+    {
+        // Arrange
+        var expected = Expected(1, status: status);
+        expected.ActualTransactionId = Id(20);
+        expected.ProcessedAt = Today.AddDays(-1);
+        var fixture = CreateFixture(expected);
+        fixture.ActualTransactions.Add(new Transaction { Id = ActualId, UserId = OwnerId });
+
+        // Act
+        var result = await fixture.Service.ConfirmExpectedTransactionAsync(expected.Id, ActualId);
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.Conflict);
+        expected.Status.Should().Be(status);
+        expected.ActualTransactionId.Should().Be(Id(20));
+        expected.ProcessedAt.Should().Be(Today.AddDays(-1));
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Write and commit failures return persistence errors; mocks do not prove rollback.<br />
+    ///     (VI) Lỗi ghi hoặc commit trả lỗi lưu trữ; mock không chứng minh rollback.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfirmExpectedTransactionAsync_ShouldReturnPersistenceError_WhenWriteOrCommitFails(bool commit)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        fixture.ActualTransactions.Add(new Transaction { Id = ActualId, UserId = OwnerId });
+        if (commit)
+            fixture.Transaction.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("Commit failed"));
+        else
+            fixture.UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DbUpdateException("Write failed"));
+
+        // Act
+        var result = await fixture.Service.ConfirmExpectedTransactionAsync(expected.Id, ActualId);
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.PersistenceError);
+        result.ActualTransaction.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     (EN) A same-owner actual tombstone cannot be linked and leaves the expected period unprocessed.<br />
+    ///     (VI) Giao dịch thực xóa mềm cùng chủ không được liên kết và giữ kỳ chưa xử lý.
+    /// </summary>
+    [Fact]
+    public async Task ConfirmExpectedTransactionAsync_ShouldReturnNotFound_WhenActualIsSoftDeleted()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        fixture.ActualTransactions.Add(new Transaction
         {
-            Id = expectedTransactionId,
-            Status = ExpectedTransactionStatus.Pending,
-            UserId = Guid.CreateVersion7(),
-            AccountId = Guid.CreateVersion7(),
-            ExpectedAmount = 100m,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(expectedTransactionId))
-            .ReturnsAsync(expectedTransaction);
-        repoMock.Setup(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>()))
-            .ReturnsAsync(1);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-        unitOfWorkMock.Setup(u => u.SaveChangesAsync()).ReturnsAsync(1);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+            Id = ActualId, UserId = OwnerId, AccountId = AccountId, IsDeleted = "20261008120000"
+        });
 
         // Act
-        var result = await service.ConfirmExpectedTransactionAsync(expectedTransactionId, actualTransactionId);
+        var result = await fixture.Service.ConfirmExpectedTransactionAsync(expected.Id, ActualId);
 
         // Assert
-        result.Should().BeTrue();
-        expectedTransaction.Status.Should().Be(ExpectedTransactionStatus.Confirmed);
-        expectedTransaction.ActualTransactionId.Should().Be(actualTransactionId);
-        expectedTransaction.ProcessedAt.Should().NotBeNull();
-        expectedTransaction.UpdatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
-
-        repoMock.Verify(r => r.GetByIdAsync(expectedTransactionId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>()), Times.Once);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Once);
-        transactionMock.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    /// <summary>
-    ///     Verifies that ConfirmExpectedTransactionAsync returns false when the expected transaction to confirm is not found.
-    ///     (EN)<br />
-    ///     Xác minh rằng ConfirmExpectedTransactionAsync trả về false khi không tìm thấy giao dịch dự kiến cần xác nhận. (VI)
-    /// </summary>
-    [Fact]
-    public async Task ConfirmExpectedTransactionAsync_ShouldReturnFalse_WhenTransactionNotFound()
-    {
-        // Arrange
-        var expectedTransactionId = Guid.CreateVersion7();
-        var actualTransactionId = Guid.CreateVersion7();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(expectedTransactionId))
-            .ReturnsAsync((ExpectedTransaction?)null);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.ConfirmExpectedTransactionAsync(expectedTransactionId, actualTransactionId);
-
-        // Assert
-        result.Should().BeFalse();
-        repoMock.Verify(r => r.GetByIdAsync(expectedTransactionId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>()), Times.Never);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Never);
-    }
-
-    /// <summary>
-    ///     Verifies that ConfirmExpectedTransactionAsync returns false when the transaction is not in the Pending status. (EN)
-    ///     <br />
-    ///     Xác minh rằng ConfirmExpectedTransactionAsync trả về false khi giao dịch không ở trạng thái Đang chờ xử lý. (VI)
-    /// </summary>
-    [Fact]
-    public async Task ConfirmExpectedTransactionAsync_ShouldReturnFalse_WhenTransactionIsNotPending()
-    {
-        // Arrange
-        var expectedTransactionId = Guid.CreateVersion7();
-        var actualTransactionId = Guid.CreateVersion7();
-        var expectedTransaction = new ExpectedTransaction
-        {
-            Id = expectedTransactionId,
-            Status = ExpectedTransactionStatus.Confirmed, // Already confirmed
-            UserId = Guid.CreateVersion7(),
-            AccountId = Guid.CreateVersion7(),
-            ExpectedAmount = 100m
-        };
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(expectedTransactionId))
-            .ReturnsAsync(expectedTransaction);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.ConfirmExpectedTransactionAsync(expectedTransactionId, actualTransactionId);
-
-        // Assert
-        result.Should().BeFalse();
-        repoMock.Verify(r => r.GetByIdAsync(expectedTransactionId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>()), Times.Never);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Never);
-    }
-
-    /// <summary>
-    ///     Verifies that ConfirmExpectedTransactionAsync returns false and logs an error when an exception occurs during the
-    ///     confirmation process. (EN)<br />
-    ///     Xác minh rằng ConfirmExpectedTransactionAsync trả về false và ghi log lỗi khi có ngoại lệ xảy ra trong quá trình
-    ///     xác nhận. (VI)
-    /// </summary>
-    [Fact]
-    public async Task ConfirmExpectedTransactionAsync_ShouldReturnFalse_WhenExceptionOccurs()
-    {
-        // Arrange
-        var expectedTransactionId = Guid.CreateVersion7();
-        var actualTransactionId = Guid.CreateVersion7();
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(expectedTransactionId))
-            .ThrowsAsync(new InvalidOperationException("Database error"));
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.RollbackAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.ConfirmExpectedTransactionAsync(expectedTransactionId, actualTransactionId);
-
-        // Assert
-        result.Should().BeFalse();
-        repoMock.Verify(r => r.GetByIdAsync(expectedTransactionId), Times.Once);
-        transactionMock.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
-
-        // Verify that error was logged
-        loggerMock.Verify(
-            x => x.Log(
-                LogLevel.Error,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Error confirming expected transaction")),
-                It.IsAny<Exception>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.NotFound);
+        expected.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        expected.ActualTransactionId.Should().BeNull();
+        expected.ProcessedAt.Should().BeNull();
+        fixture.CreatedActualTransactions.Should().BeEmpty();
     }
 }

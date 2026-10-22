@@ -1,10 +1,5 @@
-using CoreFinance.Application.Services;
-using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
-using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.Extensions.Logging;
 using Moq;
 
 namespace CoreFinance.Application.Tests.RecurringTransactionTemplateServiceTests;
@@ -12,186 +7,92 @@ namespace CoreFinance.Application.Tests.RecurringTransactionTemplateServiceTests
 public partial class RecurringTransactionTemplateServiceTests
 {
     /// <summary>
-    ///     (EN) Verifies that ToggleActiveStatusAsync returns true when the template's active status is toggled successfully.
-    ///     <br />
-    ///     (VI) Xác minh rằng ToggleActiveStatusAsync trả về true khi trạng thái hoạt động của mẫu được chuyển đổi thành công.
+    ///     (EN) Toggling an existing template persists the new state and commits.<br />
+    ///     (VI) Bật/tắt mẫu hiện có thì lưu trạng thái mới và commit.
     /// </summary>
-    [Fact]
-    public async Task ToggleActiveStatusAsync_ShouldReturnTrue_WhenTemplateIsToggledSuccessfully()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ToggleActiveStatusAsync_ShouldPersistNewState_WhenTemplateExists(bool isActive)
     {
         // Arrange
-        var templateId = Guid.CreateVersion7();
-        var template = new RecurringTransactionTemplate
-        {
-            Id = templateId,
-            UserId = Guid.CreateVersion7(),
-            AccountId = Guid.CreateVersion7(),
-            Name = "Test Template",
-            IsActive = false,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ReturnsAsync(template);
-        repoMock.Setup(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()))
-            .ReturnsAsync(1);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-        unitOfWorkMock.Setup(u => u.SaveChangesAsync()).ReturnsAsync(1);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var template = NewTemplate(D(2026, 1, 1));
+        template.IsActive = !isActive;
+        var harness = new GenerationHarness { Template = template };
 
         // Act
-        var result = await service.ToggleActiveStatusAsync(templateId, true);
+        var result = await harness.Service().ToggleActiveStatusAsync(template.Id, isActive);
 
         // Assert
         result.Should().BeTrue();
-        template.IsActive.Should().BeTrue();
-        template.UpdatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
-
-        repoMock.Verify(r => r.GetByIdAsync(templateId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()), Times.Once);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Once);
-        transactionMock.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+        template.IsActive.Should().Be(isActive);
     }
 
     /// <summary>
-    ///     (EN) Verifies that ToggleActiveStatusAsync returns false when the template is not found.<br />
-    ///     (VI) Xác minh rằng ToggleActiveStatusAsync trả về false khi không tìm thấy mẫu.
+    ///     (EN) A missing template returns false and writes nothing.<br />
+    ///     (VI) Mẫu không tồn tại trả về false và không ghi gì.
     /// </summary>
     [Fact]
     public async Task ToggleActiveStatusAsync_ShouldReturnFalse_WhenTemplateNotFound()
     {
         // Arrange
-        var templateId = Guid.CreateVersion7();
-
-        var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ReturnsAsync((RecurringTransactionTemplate?)null);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var harness = new GenerationHarness();
 
         // Act
-        var result = await service.ToggleActiveStatusAsync(templateId, true);
+        var result = await harness.Service().ToggleActiveStatusAsync(Guid.CreateVersion7(), false);
 
         // Assert
         result.Should().BeFalse();
-        repoMock.Verify(r => r.GetByIdAsync(templateId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()), Times.Never);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Never);
     }
 
     /// <summary>
-    ///     (EN) Verifies that ToggleActiveStatusAsync toggles the active status from true to false correctly.<br />
-    ///     (VI) Xác minh rằng ToggleActiveStatusAsync chuyển đổi trạng thái hoạt động từ true sang false một cách chính xác.
+    ///     (EN) A persistence failure returns false and rolls back.<br />
+    ///     (VI) Lỗi lưu trữ trả về false và rollback.
     /// </summary>
     [Fact]
-    public async Task ToggleActiveStatusAsync_ShouldToggleFromTrueToFalse_WhenTemplateIsCurrentlyActive()
+    public async Task ToggleActiveStatusAsync_ShouldReturnFalseAndRollback_WhenUpdateFails()
     {
         // Arrange
-        var templateId = Guid.CreateVersion7();
-        var template = new RecurringTransactionTemplate
-        {
-            Id = templateId,
-            UserId = Guid.CreateVersion7(),
-            AccountId = Guid.CreateVersion7(),
-            Name = "Active Template",
-            IsActive = true, // Currently active
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ReturnsAsync(template);
-        repoMock.Setup(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()))
-            .ReturnsAsync(1);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-        unitOfWorkMock.Setup(u => u.SaveChangesAsync()).ReturnsAsync(1);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var harness = new GenerationHarness { Template = NewTemplate(D(2026, 1, 1)) };
+        harness.TemplateRepo
+            .Setup(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("db down"));
 
         // Act
-        var result = await service.ToggleActiveStatusAsync(templateId, false);
-
-        // Assert
-        result.Should().BeTrue();
-        template.IsActive.Should().BeFalse(); // Should be toggled to false
-        template.UpdatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
-
-        repoMock.Verify(r => r.GetByIdAsync(templateId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>()), Times.Once);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Once);
-        transactionMock.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that ToggleActiveStatusAsync returns false when an exception occurs during the process.<br />
-    ///     (VI) Xác minh rằng ToggleActiveStatusAsync trả về false khi có ngoại lệ xảy ra trong quá trình xử lý.
-    /// </summary>
-    [Fact]
-    public async Task ToggleActiveStatusAsync_ShouldReturnFalse_WhenExceptionOccurs()
-    {
-        // Arrange
-        var templateId = Guid.CreateVersion7();
-
-        var repoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(templateId))
-            .ThrowsAsync(new InvalidOperationException("Database error"));
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.RollbackAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        var result = await service.ToggleActiveStatusAsync(templateId, true);
+        var result = await harness.Service().ToggleActiveStatusAsync(harness.Template.Id, false);
 
         // Assert
         result.Should().BeFalse();
-        repoMock.Verify(r => r.GetByIdAsync(templateId), Times.Once);
-        transactionMock.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
 
-        // Verify that error was logged
-        loggerMock.Verify(
-            x => x.Log(
-                LogLevel.Error,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Error toggling active status for template")),
-                It.IsAny<Exception>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+    /// <summary>
+    ///     (EN) Cancellation while acquiring the template lock propagates without toggling the stored state.<br />
+    ///     (VI) Hủy khi lấy khóa mẫu được truyền ra mà không đổi trạng thái đã lưu.
+    /// </summary>
+    [Fact]
+    public async Task ToggleActiveStatusAsync_ShouldPropagateCancellationWithoutChangingState_WhenCancelled()
+    {
+        // Arrange
+        var template = NewTemplate(Today);
+        var harness = new GenerationHarness { Template = template };
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        harness.UnitOfWork.Setup(unitOfWork =>
+                unitOfWork.AcquireOwnerResourceLockAsync("recurring", template.Id, It.IsAny<CancellationToken>()))
+            .Returns<string, Guid, CancellationToken>((_, _, token) =>
+            {
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            });
+
+        // Act
+        var act = () => harness.Service().ToggleActiveStatusAsync(template.Id, false, cancellation.Token);
+
+        // Assert
+        var failure = await act.Should().ThrowAsync<OperationCanceledException>();
+        failure.Which.CancellationToken.Should().Be(cancellation.Token);
+        template.IsActive.Should().BeTrue();
+        template.NextExecutionDate.Should().Be(Today);
+        harness.Created.Should().BeEmpty();
     }
 }

@@ -2,12 +2,12 @@ using CoreFinance.Application.DTOs.Transaction;
 using CoreFinance.Application.Services;
 using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
-using CoreFinance.Domain.Exceptions;
 using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Shared.Contracts.Exceptions;
 using System.Linq.Expressions;
 
 namespace CoreFinance.Application.Tests.TransactionServiceTests;

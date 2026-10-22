@@ -1,308 +1,137 @@
-using CoreFinance.Application.Services;
+using CoreFinance.Application.Interfaces;
 using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.Extensions.Logging;
+using CoreFinance.Domain.Enums;
+using Microsoft.Extensions.DependencyInjection;
 using MockQueryable;
 using Moq;
 
 namespace CoreFinance.Application.Tests.RecurringTransactionTemplateServiceTests;
 
-// Tests for the GenerateExpectedTransactionsForAllActiveTemplatesAsync method of RecurringTransactionTemplateService
 public partial class RecurringTransactionTemplateServiceTests
 {
     /// <summary>
-    ///     (EN) Verifies that GenerateExpectedTransactionsForAllActiveTemplatesAsync processes only active templates with
-    ///     auto-generate enabled.<br />
-    ///     (VI) Xác minh rằng GenerateExpectedTransactionsForAllActiveTemplatesAsync chỉ xử lý các mẫu đang hoạt động có bật
-    ///     tự động tạo.
+    ///     (EN) Real DI scopes own independent child services and units of work; assertions observe generated windows.<br />
+    ///     (VI) Scope DI thật quản lý service con và unit of work riêng; assertion quan sát cửa sổ đã sinh.
+    /// </summary>
+    private sealed class AllActiveFixture : IAsyncDisposable
+    {
+        private readonly ServiceProvider _provider;
+        public Application.Services.RecurringTransactionTemplateService Service { get; }
+
+        public AllActiveFixture(DateTime today, params GenerationHarness[] children)
+        {
+            var pending = new Queue<GenerationHarness>(children);
+            _provider = new ServiceCollection()
+                .AddScoped<GenerationHarness>(_ => pending.Dequeue())
+                .AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<GenerationHarness>().UnitOfWork.Object)
+                .AddScoped<IRecurringTransactionTemplateService>(provider =>
+                    CreateService(provider.GetRequiredService<IUnitOfWork>(), today: today))
+                .BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+
+            var templateRepo = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
+            templateRepo.Setup(r => r.GetNoTrackingEntities())
+                .Returns(() => children.Select(child => child.Template!).ToList().BuildMock());
+            var unitOfWork = new Mock<IUnitOfWork>();
+            unitOfWork.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>()).Returns(templateRepo.Object);
+            Service = CreateService(unitOfWork.Object,
+                scopeFactory: _provider.GetRequiredService<IServiceScopeFactory>());
+        }
+
+        public ValueTask DisposeAsync() => _provider.DisposeAsync();
+    }
+
+    /// <summary>
+    ///     (EN) A failing template does not stop the others; the run reports the failure only after every template ran.<br />
+    ///     (VI) Một mẫu lỗi không chặn các mẫu khác; lượt chạy chỉ báo lỗi sau khi mọi mẫu đã chạy.
     /// </summary>
     [Fact]
-    public async Task
-        GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldProcessOnlyActiveTemplatesWithAutoGenerate()
+    public async Task GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldIsolateFailures_AndReportAfterRun()
     {
         // Arrange
-        var templates = new List<RecurringTransactionTemplate>
+        var today = D(2026, 3, 31);
+        var first = new GenerationHarness
         {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Active Auto Template",
-                IsActive = true,
-                AutoGenerate = true,
-                DaysInAdvance = 30
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Active Manual Template",
-                IsActive = true,
-                AutoGenerate = false, // Should be ignored
-                DaysInAdvance = 30
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Inactive Auto Template",
-                IsActive = false, // Should be ignored
-                AutoGenerate = true,
-                DaysInAdvance = 30
-            }
+            Template = NewTemplate(D(2026, 1, 31), cursor: D(2026, 2, 28))
         };
-
-        var templatesMock = templates.BuildMock();
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(templatesMock);
-
-        var expectedTransactionRepoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        expectedTransactionRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(new List<ExpectedTransaction>().BuildMock());
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Returns(templateRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>())
-            .Returns(expectedTransactionRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var failing = new GenerationHarness { Template = NewTemplate(Today, RecurrenceFrequency.Custom) };
+        failing.Template.CustomIntervalDays = 0;
+        var last = new GenerationHarness { Template = NewTemplate(D(2026, 3, 17), RecurrenceFrequency.Weekly) };
+        await using var fixture = new AllActiveFixture(today, first, failing, last);
 
         // Act
-        await service.GenerateExpectedTransactionsForAllActiveTemplatesAsync();
+        var act = () => fixture.Service.GenerateExpectedTransactionsForAllActiveTemplatesAsync();
 
         // Assert
-        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Once);
-        transactionMock.Verify(t => t.CommitAsync(CancellationToken.None), Times.Once);
-        templateRepoMock.Verify(r => r.GetNoTrackingEntities(), Times.Once);
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GenerateExpectedTransactionsForAllActiveTemplatesAsync handles an empty template list correctly.
-    ///     <br />
-    ///     (VI) Xác minh rằng GenerateExpectedTransactionsForAllActiveTemplatesAsync xử lý danh sách mẫu rỗng một cách chính
-    ///     xác.
-    /// </summary>
-    [Fact]
-    public async Task GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldHandleEmptyTemplateList()
-    {
-        // Arrange
-        var templatesMock = new List<RecurringTransactionTemplate>().BuildMock();
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(templatesMock);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Returns(templateRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        await service.GenerateExpectedTransactionsForAllActiveTemplatesAsync();
-
-        // Assert
-        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Once);
-        transactionMock.Verify(t => t.CommitAsync(CancellationToken.None), Times.Once);
-        templateRepoMock.Verify(r => r.GetNoTrackingEntities(), Times.Once);
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GenerateExpectedTransactionsForAllActiveTemplatesAsync rolls back the transaction on exception.
-    ///     <br />
-    ///     (VI) Xác minh rằng GenerateExpectedTransactionsForAllActiveTemplatesAsync thực hiện rollback giao dịch khi có ngoại
-    ///     lệ.
-    /// </summary>
-    [Fact]
-    public async Task GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldRollbackOnException()
-    {
-        // Arrange
-        var templates = new List<RecurringTransactionTemplate>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Active Auto Template",
-                IsActive = true,
-                AutoGenerate = true,
-                DaysInAdvance = 30
-            }
-        };
-
-        var templatesMock = templates.BuildMock();
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(templatesMock);
-
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.RollbackAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-
-        // Setup to throw exception during processing
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Throws(new InvalidOperationException("Test exception"));
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act & Assert
-        var act = async () => await service.GenerateExpectedTransactionsForAllActiveTemplatesAsync();
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("Test exception");
-
-        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Once);
-        transactionMock.Verify(t => t.RollbackAsync(CancellationToken.None), Times.Once);
-        transactionMock.Verify(t => t.CommitAsync(CancellationToken.None), Times.Never);
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GenerateExpectedTransactionsForAllActiveTemplatesAsync filters templates correctly.<br />
-    ///     (VI) Xác minh rằng GenerateExpectedTransactionsForAllActiveTemplatesAsync lọc các mẫu một cách chính xác.
-    /// </summary>
-    [Fact]
-    public async Task GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldFilterCorrectly()
-    {
-        // Arrange
-        var templates = new List<RecurringTransactionTemplate>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Template 1",
-                IsActive = true,
-                AutoGenerate = true,
-                DaysInAdvance = 30
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Template 2",
-                IsActive = true,
-                AutoGenerate = false // Should not be processed
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Template 3",
-                IsActive = false, // Should not be processed
-                AutoGenerate = true
-            },
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Template 4",
-                IsActive = true,
-                AutoGenerate = true,
-                DaysInAdvance = 60
-            }
-        };
-
-        var templatesMock = templates.BuildMock();
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(templatesMock);
-
-        var expectedTransactionRepoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        expectedTransactionRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(new List<ExpectedTransaction>().BuildMock());
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Returns(templateRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>())
-            .Returns(expectedTransactionRepoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync())
-            .ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act
-        await service.GenerateExpectedTransactionsForAllActiveTemplatesAsync();
-
-        // Assert
-        // Should only process templates that are both active AND have auto-generate enabled
-        // That's Template 1 and Template 4 (2 templates)
-        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Once);
-        transactionMock.Verify(t => t.CommitAsync(CancellationToken.None), Times.Once);
-        templateRepoMock.Verify(r => r.GetNoTrackingEntities(), Times.Once);
-    }
-
-    /// <summary>
-    ///     (EN) Verifies that GenerateExpectedTransactionsForAllActiveTemplatesAsync logs an error on exception.<br />
-    ///     (VI) Xác minh rằng GenerateExpectedTransactionsForAllActiveTemplatesAsync ghi nhật ký lỗi khi có ngoại lệ.
-    /// </summary>
-    [Fact]
-    public async Task GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldLogErrorOnException()
-    {
-        // Arrange
-        var templates = new List<RecurringTransactionTemplate>
-        {
-            new()
-            {
-                Id = Guid.CreateVersion7(),
-                Name = "Active Auto Template",
-                IsActive = true,
-                AutoGenerate = true,
-                DaysInAdvance = 30
-            }
-        };
-
-        var templatesMock = templates.BuildMock();
-
-        var templateRepoMock = new Mock<IBaseRepository<RecurringTransactionTemplate, Guid>>();
-        templateRepoMock.Setup(r => r.GetNoTrackingEntities())
-            .Returns(templatesMock);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.RollbackAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        // Setup to throw exception during processing
-        unitOfWorkMock.Setup(u => u.Repository<RecurringTransactionTemplate, Guid>())
-            .Throws(new InvalidOperationException("Test exception"));
-
-        var loggerMock = new Mock<ILogger<RecurringTransactionTemplateService>>();
-        var service = new RecurringTransactionTemplateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
-
-        // Act & Assert
-        var act = async () => await service.GenerateExpectedTransactionsForAllActiveTemplatesAsync();
         await act.Should().ThrowAsync<InvalidOperationException>();
+        first.CreatedDates.Should().Equal(D(2026, 2, 28), D(2026, 3, 31));
+        first.Template.NextExecutionDate.Should().Be(D(2026, 4, 30));
+        failing.Created.Should().BeEmpty();
+        failing.Template.NextExecutionDate.Should().Be(Today);
+        last.CreatedDates.Should().Equal(D(2026, 3, 17), D(2026, 3, 24), D(2026, 3, 31));
+        last.Template.NextExecutionDate.Should().Be(D(2026, 4, 7));
+    }
 
-        // Verify that error was logged
-        loggerMock.Verify(
-            x => x.Log(
-                LogLevel.Error,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) =>
-                    v.ToString()!.Contains("Error generating expected transactions for all active templates")),
-                It.IsAny<Exception>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+    /// <summary>
+    ///     (EN) A healthy run generates every child's exact window and advances each independent cursor.<br />
+    ///     (VI) Lượt chạy thành công sinh đúng cửa sổ của từng mẫu và dời từng cursor độc lập.
+    /// </summary>
+    [Fact]
+    public async Task GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldGenerateEveryWindow_WhenAllChildrenAreHealthy()
+    {
+        // Arrange
+        var first = new GenerationHarness { Template = NewTemplate(Today, RecurrenceFrequency.Daily) };
+        var last = new GenerationHarness
+        {
+            Template = NewTemplate(Today, RecurrenceFrequency.Weekly, daysInAdvance: 7)
+        };
+        await using var fixture = new AllActiveFixture(Today, first, last);
+
+        // Act
+        await fixture.Service.GenerateExpectedTransactionsForAllActiveTemplatesAsync();
+
+        // Assert
+        first.CreatedDates.Should().Equal(Today);
+        first.Template.NextExecutionDate.Should().Be(Today.AddDays(1));
+        last.CreatedDates.Should().Equal(Today, Today.AddDays(7));
+        last.Template.NextExecutionDate.Should().Be(Today.AddDays(14));
+    }
+
+    /// <summary>
+    ///     (EN) Cancellation is propagated instead of being counted as a template failure.<br />
+    ///     (VI) Việc hủy được lan truyền thay vì bị tính là lỗi của mẫu.
+    /// </summary>
+    [Fact]
+    public async Task GenerateExpectedTransactionsForAllActiveTemplatesAsync_ShouldPropagate_WhenCancelled()
+    {
+        // Arrange
+        var first = new GenerationHarness { Template = NewTemplate(Today, RecurrenceFrequency.Daily) };
+        var cancelled = new GenerationHarness { Template = NewTemplate(Today, RecurrenceFrequency.Daily) };
+        var last = new GenerationHarness { Template = NewTemplate(Today, RecurrenceFrequency.Daily) };
+        using var cancellation = new CancellationTokenSource();
+        cancelled.UnitOfWork.Setup(unitOfWork => unitOfWork.AcquireOwnerResourceLockAsync("recurring",
+                cancelled.Template.Id, It.IsAny<CancellationToken>()))
+            .Returns<string, Guid, CancellationToken>((_, _, token) =>
+            {
+                cancellation.Cancel();
+                token.ThrowIfCancellationRequested();
+                return Task.CompletedTask;
+            });
+        await using var fixture = new AllActiveFixture(Today, first, cancelled, last);
+
+        // Act
+        var act = () => fixture.Service.GenerateExpectedTransactionsForAllActiveTemplatesAsync(cancellation.Token);
+
+        // Assert
+        var failure = await act.Should().ThrowAsync<OperationCanceledException>();
+        failure.Which.CancellationToken.Should().Be(cancellation.Token);
+        first.CreatedDates.Should().Equal(Today);
+        first.Template.NextExecutionDate.Should().Be(Today.AddDays(1));
+        cancelled.Created.Should().BeEmpty();
+        cancelled.Template.NextExecutionDate.Should().Be(Today);
+        last.Created.Should().BeEmpty();
+        last.Template.NextExecutionDate.Should().Be(Today);
     }
 }

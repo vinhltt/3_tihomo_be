@@ -110,5 +110,23 @@ public class CoreFinanceDbContext : DbContext
                   .HasFilter("code IS NOT NULL")  // PostgreSQL syntax, snake_case naming
                   .HasDatabaseName("ix_accounts_code");
         });
+
+        modelBuilder.Entity<ExpectedTransaction>(entity =>
+        {
+            // (EN) PostgreSQL xmin system column as row version: changes on every UPDATE, including soft delete.
+            //      Npgsql maps a uint row version to xmin, so no physical column is created.
+            // (VI) Cột hệ thống xmin của PostgreSQL làm row version: đổi ở mọi UPDATE, kể cả xóa mềm.
+            //      Npgsql ánh xạ row version kiểu uint sang xmin, không tạo cột vật lý.
+            entity.Property<uint>("xmin").IsRowVersion();
+
+            // (EN) One expected transaction per actual transaction, tombstones included.
+            //      ux_expected_template_day (template + calendar day) is an expression index created by migration SQL.
+            // (VI) Mỗi giao dịch thực chỉ gắn một giao dịch dự kiến, kể cả bản đã xóa mềm.
+            //      ux_expected_template_day (mẫu + ngày lịch) là expression index tạo bằng SQL trong migration.
+            entity.HasIndex(e => e.ActualTransactionId)
+                  .IsUnique()
+                  .HasFilter("actual_transaction_id IS NOT NULL")
+                  .HasDatabaseName("ux_expected_actual_transaction");
+        });
     }
 }

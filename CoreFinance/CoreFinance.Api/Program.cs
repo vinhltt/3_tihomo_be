@@ -106,6 +106,9 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSett
 builder.Services.AddJwtAuthentication(jwtSettings);
 builder.Services.AddJwtAuthorization();
 
+// Daily recurring generation (startup catch-up + RunAtLocalTime UTC+7); disabled under Testing via appsettings.Testing.json
+builder.Services.AddRecurringGeneration(builder.Configuration);
+
 // Add MassTransit for message consumption
 builder.Services.AddMassTransit(x =>
 {    // Add consumers
@@ -235,10 +238,11 @@ app.UseHttpsRedirection();
 
 app.UseCors(policyName);
 
+app.UseRouting();
+
 // Add authentication and authorization middleware
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseRouting();
 
 // Map health check endpoint with detailed JSON response
 app.MapHealthChecks("/health", new HealthCheckOptions

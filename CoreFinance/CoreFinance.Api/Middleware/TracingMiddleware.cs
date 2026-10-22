@@ -88,7 +88,7 @@ public class TracingMiddleware
             
             // Set status based on HTTP status code
             // Đặt status dựa trên HTTP status code
-            if (context.Response.StatusCode >= 400)
+            if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
             {
                 activity?.SetStatus(ActivityStatusCode.Error, GetStatusDescription(context.Response.StatusCode));
             }
@@ -130,17 +130,17 @@ public class TracingMiddleware
     {
         return statusCode switch
         {
-            400 => "Bad Request",
-            401 => "Unauthorized", 
-            403 => "Forbidden",
-            404 => "Not Found",
-            405 => "Method Not Allowed",
-            408 => "Request Timeout",
-            429 => "Too Many Requests",
-            500 => "Internal Server Error",
-            502 => "Bad Gateway",
-            503 => "Service Unavailable",
-            504 => "Gateway Timeout",
+            StatusCodes.Status400BadRequest => "Bad Request",
+            StatusCodes.Status401Unauthorized => "Unauthorized", 
+            StatusCodes.Status403Forbidden => "Forbidden",
+            StatusCodes.Status404NotFound => "Not Found",
+            StatusCodes.Status405MethodNotAllowed => "Method Not Allowed",
+            StatusCodes.Status408RequestTimeout => "Request Timeout",
+            StatusCodes.Status429TooManyRequests => "Too Many Requests",
+            StatusCodes.Status500InternalServerError => "Internal Server Error",
+            StatusCodes.Status502BadGateway => "Bad Gateway",
+            StatusCodes.Status503ServiceUnavailable => "Service Unavailable",
+            StatusCodes.Status504GatewayTimeout => "Gateway Timeout",
             _ => $"HTTP {statusCode}"
         };
     }

@@ -17,7 +17,7 @@ namespace CoreFinance.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.6")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -212,6 +212,12 @@ namespace CoreFinance.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("user_id");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id")
                         .HasName("pk_expected_transactions");
 
@@ -219,7 +225,9 @@ namespace CoreFinance.Infrastructure.Migrations
                         .HasDatabaseName("ix_expected_transactions_account_id");
 
                     b.HasIndex("ActualTransactionId")
-                        .HasDatabaseName("ix_expected_transactions_actual_transaction_id");
+                        .IsUnique()
+                        .HasDatabaseName("ux_expected_actual_transaction")
+                        .HasFilter("actual_transaction_id IS NOT NULL");
 
                     b.HasIndex("Id")
                         .HasDatabaseName("ix_expected_transactions_id");

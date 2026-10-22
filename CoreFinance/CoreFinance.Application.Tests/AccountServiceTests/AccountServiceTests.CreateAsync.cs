@@ -3,12 +3,12 @@ using CoreFinance.Application.Services;
 using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
-using CoreFinance.Domain.Exceptions;
 using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
+using Shared.Contracts.Exceptions;
 
 namespace CoreFinance.Application.Tests.AccountServiceTests;
 

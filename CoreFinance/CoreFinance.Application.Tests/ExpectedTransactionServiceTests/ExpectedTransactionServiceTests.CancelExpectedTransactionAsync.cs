@@ -1,205 +1,165 @@
-using CoreFinance.Application.Services;
-using CoreFinance.Domain.BaseRepositories;
-using CoreFinance.Domain.Entities;
+using CoreFinance.Application.Enums;
 using CoreFinance.Domain.Enums;
-using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore.Storage;
-using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using Moq;
 
 namespace CoreFinance.Application.Tests.ExpectedTransactionServiceTests;
 
-/// <summary>
-///     Contains test cases for the CancelExpectedTransactionAsync method of ExpectedTransactionService. (EN)<br />
-///     Chứa các trường hợp kiểm thử cho phương thức CancelExpectedTransactionAsync của ExpectedTransactionService. (VI)
-/// </summary>
 public partial class ExpectedTransactionServiceTests
 {
     /// <summary>
-    ///     Verifies that CancelExpectedTransactionAsync returns true and updates the transaction status and reason when
-    ///     cancellation is successful. (EN)<br />
-    ///     Xác minh rằng CancelExpectedTransactionAsync trả về true và cập nhật trạng thái giao dịch cùng lý do khi hủy bỏ
-    ///     thành công. (VI)
+    ///     (EN) Cancelling a pending or overdue period exposes its reason and processed state without an actual.<br />
+    ///     (VI) Hủy kỳ đang chờ hoặc quá hạn trả lý do và trạng thái đã xử lý mà không tạo giao dịch thực.
     /// </summary>
-    [Fact]
-    public async Task CancelExpectedTransactionAsync_ShouldReturnTrue_WhenTransactionIsCancelledSuccessfully()
+    [Theory]
+    [InlineData(-30)]
+    [InlineData(0)]
+    [InlineData(7)]
+    public async Task CancelExpectedTransactionAsync_ShouldExposeCancelledPeriodAndReason_WhenPeriodIsPending(int days)
     {
         // Arrange
-        var expectedTransactionId = Guid.CreateVersion7();
-        var reason = "User requested cancellation";
-        var expectedTransaction = new ExpectedTransaction
-        {
-            Id = expectedTransactionId,
-            Status = ExpectedTransactionStatus.Pending,
-            UserId = Guid.CreateVersion7(),
-            AccountId = Guid.CreateVersion7(),
-            ExpectedAmount = 100m,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
-        };
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(expectedTransactionId))
-            .ReturnsAsync(expectedTransaction);
-        repoMock.Setup(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>()))
-            .ReturnsAsync(1);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-        unitOfWorkMock.Setup(u => u.SaveChangesAsync()).ReturnsAsync(1);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var expected = Expected(1, days);
+        var fixture = CreateFixture(expected);
 
         // Act
-        var result = await service.CancelExpectedTransactionAsync(expectedTransactionId, reason);
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, "No bill this month");
+        var view = await fixture.Service.GetByIdAsync(expected.Id);
 
         // Assert
-        result.Should().BeTrue();
-        expectedTransaction.Status.Should().Be(ExpectedTransactionStatus.Cancelled);
-        expectedTransaction.AdjustmentReason.Should().Be(reason);
-        expectedTransaction.ProcessedAt.Should().NotBeNull();
-        expectedTransaction.UpdatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(1));
-
-        repoMock.Verify(r => r.GetByIdAsync(expectedTransactionId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>()), Times.Once);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Once);
-        transactionMock.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.Success);
+        view.Should().NotBeNull();
+        view!.Status.Should().Be(ExpectedTransactionStatus.Cancelled);
+        view.DisplayStatus.Should().Be(2);
+        view.AdjustmentReason.Should().Be("No bill this month");
+        view.ExpectedAmount.Should().Be(100m);
+        view.ProcessedAt.Should().NotBeNull();
+        view.ActualTransactionId.Should().BeNull();
+        fixture.CreatedActualTransactions.Should().BeEmpty();
     }
 
     /// <summary>
-    ///     Verifies that CancelExpectedTransactionAsync returns false when the expected transaction to cancel is not found.
-    ///     (EN)<br />
-    ///     Xác minh rằng CancelExpectedTransactionAsync trả về false khi không tìm thấy giao dịch dự kiến cần hủy bỏ. (VI)
+    ///     (EN) A cancellation reason is required and invalid requests do not change lifecycle state.<br />
+    ///     (VI) Bắt buộc lý do hủy; yêu cầu không hợp lệ không thay trạng thái vòng đời.
     /// </summary>
-    [Fact]
-    public async Task CancelExpectedTransactionAsync_ShouldReturnFalse_WhenTransactionNotFound()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \t ")]
+    public async Task CancelExpectedTransactionAsync_ShouldReturnInvalidRequest_WhenReasonIsBlank(string? reason)
     {
         // Arrange
-        var expectedTransactionId = Guid.CreateVersion7();
-        var reason = "User requested cancellation";
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(expectedTransactionId))
-            .ReturnsAsync((ExpectedTransaction?)null);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
 
         // Act
-        var result = await service.CancelExpectedTransactionAsync(expectedTransactionId, reason);
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, reason!);
 
         // Assert
-        result.Should().BeFalse();
-        repoMock.Verify(r => r.GetByIdAsync(expectedTransactionId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>()), Times.Never);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Never);
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.InvalidRequest);
+        expected.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        expected.AdjustmentReason.Should().BeNull();
+        expected.ProcessedAt.Should().BeNull();
     }
 
     /// <summary>
-    ///     Verifies that CancelExpectedTransactionAsync returns false when the expected transaction is not in the Pending
-    ///     status. (EN)<br />
-    ///     Xác minh rằng CancelExpectedTransactionAsync trả về false khi giao dịch dự kiến không ở trạng thái Đang chờ xử lý.
-    ///     (VI)
+    ///     (EN) An unavailable expected reference is reported as not found.<br />
+    ///     (VI) Tham chiếu kỳ không được trả về được báo không tìm thấy.
     /// </summary>
     [Fact]
-    public async Task CancelExpectedTransactionAsync_ShouldReturnFalse_WhenTransactionIsNotPending()
+    public async Task CancelExpectedTransactionAsync_ShouldReturnNotFound_WhenExpectedReferenceIsUnavailable()
     {
         // Arrange
-        var expectedTransactionId = Guid.CreateVersion7();
-        var reason = "User requested cancellation";
-        var expectedTransaction = new ExpectedTransaction
-        {
-            Id = expectedTransactionId,
-            Status = ExpectedTransactionStatus.Confirmed, // Already confirmed
-            UserId = Guid.CreateVersion7(),
-            AccountId = Guid.CreateVersion7(),
-            ExpectedAmount = 100m
-        };
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(expectedTransactionId))
-            .ReturnsAsync(expectedTransaction);
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var fixture = CreateFixture();
 
         // Act
-        var result = await service.CancelExpectedTransactionAsync(expectedTransactionId, reason);
+        var result = await fixture.Service.CancelExpectedTransactionAsync(Id(1), "Duplicate bill");
 
         // Assert
-        result.Should().BeFalse();
-        repoMock.Verify(r => r.GetByIdAsync(expectedTransactionId), Times.Once);
-        repoMock.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>()), Times.Never);
-        unitOfWorkMock.Verify(u => u.SaveChangesAsync(), Times.Never);
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.NotFound);
     }
 
     /// <summary>
-    ///     Verifies that CancelExpectedTransactionAsync returns false and logs an error when an exception occurs during the
-    ///     cancellation process. (EN)<br />
-    ///     Xác minh rằng CancelExpectedTransactionAsync trả về false và ghi log lỗi khi có ngoại lệ xảy ra trong quá trình hủy
-    ///     bỏ. (VI)
+    ///     (EN) Terminal periods keep their original reason, status, and processed timestamp.<br />
+    ///     (VI) Kỳ kết thúc giữ nguyên lý do, trạng thái và thời điểm đã xử lý.
     /// </summary>
-    [Fact]
-    public async Task CancelExpectedTransactionAsync_ShouldReturnFalse_WhenExceptionOccurs()
+    [Theory]
+    [InlineData(ExpectedTransactionStatus.Confirmed)]
+    [InlineData(ExpectedTransactionStatus.Cancelled)]
+    [InlineData(ExpectedTransactionStatus.Completed)]
+    public async Task CancelExpectedTransactionAsync_ShouldReturnConflict_WhenPeriodIsNotPending(
+        ExpectedTransactionStatus status)
     {
         // Arrange
-        var expectedTransactionId = Guid.CreateVersion7();
-        var reason = "User requested cancellation";
-
-        var repoMock = new Mock<IBaseRepository<ExpectedTransaction, Guid>>();
-        repoMock.Setup(r => r.GetByIdAsync(expectedTransactionId))
-            .ThrowsAsync(new InvalidOperationException("Database error"));
-
-        var transactionMock = new Mock<IDbContextTransaction>();
-        transactionMock.Setup(t => t.RollbackAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
-        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
-
-        var unitOfWorkMock = new Mock<IUnitOfWork>();
-        unitOfWorkMock.Setup(u => u.Repository<ExpectedTransaction, Guid>()).Returns(repoMock.Object);
-        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
-
-        var loggerMock = new Mock<ILogger<ExpectedTransactionService>>();
-        var service = new ExpectedTransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var expected = Expected(1, status: status);
+        expected.AdjustmentReason = "Existing reason";
+        expected.ProcessedAt = Today.AddDays(-1);
+        var fixture = CreateFixture(expected);
 
         // Act
-        var result = await service.CancelExpectedTransactionAsync(expectedTransactionId, reason);
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, "Replacement reason");
 
         // Assert
-        result.Should().BeFalse();
-        repoMock.Verify(r => r.GetByIdAsync(expectedTransactionId), Times.Once);
-        transactionMock.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.Conflict);
+        expected.Status.Should().Be(status);
+        expected.AdjustmentReason.Should().Be("Existing reason");
+        expected.ProcessedAt.Should().Be(Today.AddDays(-1));
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
 
-        // Verify that error was logged
-        loggerMock.Verify(
-            x => x.Log(
-                LogLevel.Error,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("Error cancelling expected transaction")),
-                It.IsAny<Exception>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+    /// <summary>
+    ///     (EN) Write and commit failures must not be reported as a successful cancellation.<br />
+    ///     (VI) Lỗi ghi hoặc commit không được báo hủy thành công.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelExpectedTransactionAsync_ShouldReturnPersistenceError_WhenWriteOrCommitFails(bool commit)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        if (commit)
+            fixture.Transaction.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("Commit failed"));
+        else
+            fixture.UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DbUpdateException("Write failed"));
+
+        // Act
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, "No bill");
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.PersistenceError);
+    }
+
+    /// <summary>
+    ///     (EN) Cancellation accepts exactly 500 reason characters but rejects 501 without changing lifecycle state.<br />
+    ///     (VI) Hủy chấp nhận đúng 500 ký tự lý do nhưng từ chối 501 mà không đổi trạng thái vòng đời.
+    /// </summary>
+    [Theory]
+    [InlineData(500, ExpectedTransactionActionOutcome.Success)]
+    [InlineData(501, ExpectedTransactionActionOutcome.InvalidRequest)]
+    public async Task CancelExpectedTransactionAsync_ShouldEnforceReasonLengthBoundary_WhenReasonHas500Or501Characters(
+        int length, ExpectedTransactionActionOutcome outcome)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var reason = new string('r', length);
+        var accepted = outcome == ExpectedTransactionActionOutcome.Success;
+
+        // Act
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, reason);
+        var view = await fixture.Service.GetByIdAsync(expected.Id);
+
+        // Assert
+        result.Outcome.Should().Be(outcome);
+        view!.Status.Should().Be(accepted ? ExpectedTransactionStatus.Cancelled : ExpectedTransactionStatus.Pending);
+        view.AdjustmentReason.Should().Be(accepted ? reason : null);
+        view.ProcessedAt.HasValue.Should().Be(accepted);
+        view.ExpectedAmount.Should().Be(100m);
+        view.ActualTransactionId.Should().BeNull();
+        fixture.CreatedActualTransactions.Should().BeEmpty();
     }
 }
