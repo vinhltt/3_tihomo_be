@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Shared.EntityFramework.BaseEfModels;
 using CoreFinance.Api.Extensions;
 using CoreFinance.Application.Interfaces;
+using FluentValidation;
 
 namespace CoreFinance.Api.Controllers.Base;
 
@@ -68,7 +69,15 @@ public abstract class CrudController<TEntity, TCreateRequest, TUpdateRequest,
             }
         }
 
-        var result = await baseService.CreateAsync(request);
+        TViewModel? result;
+        try
+        {
+            result = await baseService.CreateAsync(request);
+        }
+        catch (ValidationException validationException)
+        {
+            return ToValidationProblem(validationException);
+        }
 
         if (null == result)
             return StatusCode(StatusCodes.Status500InternalServerError);
@@ -99,6 +108,10 @@ public abstract class CrudController<TEntity, TCreateRequest, TUpdateRequest,
         try
         {
             return Ok(await baseService.UpdateAsync(id, request));
+        }
+        catch (ValidationException validationException)
+        {
+            return ToValidationProblem(validationException);
         }
         catch (Exception ex)
         {
@@ -176,5 +189,13 @@ public abstract class CrudController<TEntity, TCreateRequest, TUpdateRequest,
         if (result != null)
             return Ok(result);
         return StatusCode(StatusCodes.Status500InternalServerError);
+    }
+
+    // Same ValidationProblemDetails shape as the automatic [ApiController] binding 400, keyed by the violating field.
+    private ActionResult ToValidationProblem(ValidationException validationException)
+    {
+        foreach (var error in validationException.Errors)
+            ModelState.AddModelError(error.PropertyName, error.ErrorMessage);
+        return ValidationProblem(ModelState);
     }
 }

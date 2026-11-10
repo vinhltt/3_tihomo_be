@@ -2,6 +2,7 @@ using CoreFinance.Application.DTOs.RecurringTransactionTemplate;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using FluentAssertions;
+using FluentValidation;
 using Moq;
 using Shared.Contracts.Exceptions;
 using EntityNotFoundException = Shared.Contracts.Exceptions.EntityNotFoundException;
@@ -127,5 +128,41 @@ public partial class RecurringTransactionTemplateServiceTests
         harness.Template!.StartDate.Should().Be(D(2026, 3, 1));
         harness.Template.NextExecutionDate.Should().Be(D(2026, 5, 1));
         result!.NextExecutionDate.Should().Be(D(2026, 5, 1));
+    }
+
+    /// <summary>
+    ///     (EN) An invalid request is rejected before any transaction, lock, account lookup or write.<br />
+    ///     (VI) Yêu cầu không hợp lệ bị từ chối trước mọi transaction, khóa, tra cứu tài khoản hay ghi.
+    /// </summary>
+    [Theory]
+    [InlineData("", 300, 30, 0, nameof(RecurringTransactionTemplateCreateRequest.Name))]
+    [InlineData(null, 300, 30, 0, nameof(RecurringTransactionTemplateCreateRequest.Name))]
+    [InlineData("Internet", 0, 30, 0, nameof(RecurringTransactionTemplateCreateRequest.Amount))]
+    [InlineData("Internet", 300, 0, 0, nameof(RecurringTransactionTemplateCreateRequest.DaysInAdvance))]
+    [InlineData("Internet", 300, 30, 99, nameof(RecurringTransactionTemplateCreateRequest.Frequency))]
+    public async Task CreateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenRequestIsInvalid(
+        string? name, int amount, int daysInAdvance, int frequency, string invalidProperty)
+    {
+        // Arrange
+        var harness = new GenerationHarness();
+        var request = NewCreateRequest();
+        request.Name = name;
+        request.Amount = amount;
+        request.DaysInAdvance = daysInAdvance;
+        request.Frequency = (RecurrenceFrequency)frequency;
+
+        // Act
+        var act = () => harness.Service().CreateAsync(request);
+
+        // Assert
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
+        harness.UnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        harness.UnitOfWork.Verify(u => u.AcquireOwnerResourceLockAsync(It.IsAny<string>(), It.IsAny<Guid>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        harness.AccountRepo.Verify(r => r.GetNoTrackingEntities(), Times.Never);
+        harness.TemplateRepo.Verify(r => r.CreateAsync(It.IsAny<RecurringTransactionTemplate>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        harness.Created.Should().BeEmpty();
     }
 }

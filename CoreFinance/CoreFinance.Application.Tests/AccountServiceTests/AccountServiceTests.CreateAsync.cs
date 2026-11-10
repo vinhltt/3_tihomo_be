@@ -5,6 +5,7 @@ using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -47,7 +48,7 @@ public partial class AccountServiceTests
 
         var loggerMock = new Mock<ILogger<AccountService>>();
         // Use the real _mapper instance available from the partial class constructor
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.CreateAsync(createRequest);
@@ -77,7 +78,10 @@ public partial class AccountServiceTests
     public async Task CreateAsync_ShouldThrowNullReferenceException_WhenRepositoryReturnsZeroAffectedCount()
     {
         // Arrange
-        var createRequest = new AccountCreateRequest { Name = "Test Account", UserId = Guid.CreateVersion7() };
+        var createRequest = new AccountCreateRequest
+        {
+            Name = "Test Account", Currency = "USD", UserId = Guid.CreateVersion7()
+        };
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.CreateAsync(It.IsAny<Account>()))
@@ -94,7 +98,7 @@ public partial class AccountServiceTests
 
         var loggerMock = new Mock<ILogger<AccountService>>();
         // Use the real _mapper instance
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.CreateAsync(createRequest);
@@ -118,7 +122,10 @@ public partial class AccountServiceTests
     public async Task CreateAsync_ShouldRollbackTransaction_WhenRepositoryThrowsException()
     {
         // Arrange
-        var createRequest = new AccountCreateRequest { Name = "Test Account", UserId = Guid.CreateVersion7() };
+        var createRequest = new AccountCreateRequest
+        {
+            Name = "Test Account", Currency = "USD", UserId = Guid.CreateVersion7()
+        };
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
         repoMock.Setup(r => r.CreateAsync(It.IsAny<Account>()))
@@ -136,7 +143,7 @@ public partial class AccountServiceTests
 
         var loggerMock = new Mock<ILogger<AccountService>>();
         // Use the real _mapper instance
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.CreateAsync(createRequest);
@@ -149,5 +156,40 @@ public partial class AccountServiceTests
         transactionMock.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()),
             Times.Once); // BaseService commits in catch
         transactionMock.Verify(t => t.DisposeAsync(), Times.Once);
+    }
+
+    /// <summary>
+    ///     Verifies that CreateAsync rejects an invalid request before opening a transaction or writing to the repository.
+    ///     (EN)<br />
+    ///     Xác minh rằng CreateAsync từ chối yêu cầu không hợp lệ trước khi mở giao dịch hoặc ghi vào repository. (VI)
+    /// </summary>
+    [Theory]
+    [InlineData("", 0, "USD", nameof(AccountCreateRequest.Name))]
+    [InlineData(null, 0, "USD", nameof(AccountCreateRequest.Name))]
+    [InlineData("Wallet", 99, "USD", nameof(AccountCreateRequest.Type))]
+    [InlineData("Wallet", 0, "", nameof(AccountCreateRequest.Currency))]
+    [InlineData("Wallet", 0, null, nameof(AccountCreateRequest.Currency))]
+    public async Task CreateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenRequestIsInvalid(
+        string? name, int type, string? currency, string invalidProperty)
+    {
+        // Arrange
+        var createRequest = new AccountCreateRequest
+        {
+            Name = name, Type = (AccountType)type, Currency = currency, UserId = Guid.CreateVersion7()
+        };
+        var repoMock = new Mock<IBaseRepository<Account, Guid>>();
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
+        var loggerMock = new Mock<ILogger<AccountService>>();
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+
+        // Act
+        Func<Task> act = async () => await service.CreateAsync(createRequest);
+
+        // Assert
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
+        repoMock.Verify(r => r.CreateAsync(It.IsAny<Account>(), It.IsAny<CancellationToken>()), Times.Never);
+        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
     }
 }

@@ -1,4 +1,5 @@
 using CoreFinance.Application.DTOs.ExpectedTransaction;
+using CoreFinance.Application.Validators;
 using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
@@ -635,5 +636,102 @@ public partial class ExpectedTransactionServiceTests
         fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         fixture.Transaction.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
         fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static string FirstUpdateValidatorMessage(ExpectedTransactionUpdateRequest request) =>
+        new ExpectedTransactionUpdateRequestValidator().Validate(request).Errors[0].ErrorMessage;
+
+    private static void VerifyNoExpectedWrite(ServiceFixture fixture)
+    {
+        fixture.ExpectedRepository.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: an invalid update request reports the first validator failure and writes nothing.<br />
+    ///     (VI) Đặc tả hiện trạng: request cập nhật sai trả lỗi validator đầu tiên và không ghi gì.
+    /// </summary>
+    [Theory]
+    [InlineData("zeroAmount", "ExpectedAmount")]
+    [InlineData("overlongReason", "AdjustmentReason")]
+    [InlineData("overlongDescription", "Description")]
+    [InlineData("undefinedStatus", "Status")]
+    public async Task UpdateAsync_ShouldReportFirstValidatorMessageWithoutWriting_WhenRequestIsInvalid(
+        string kind, string propertyName)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var request = new ExpectedTransactionUpdateRequest { Id = expected.Id };
+        switch (kind)
+        {
+            case "zeroAmount": request.ExpectedAmount = 0; request.AdjustmentReason = "New reading"; break;
+            case "overlongReason": request.ExpectedAmount = 120m; request.AdjustmentReason = new string('r', 501); break;
+            case "overlongDescription": request.Description = new string('d', 501); break;
+            case "undefinedStatus": request.Status = (ExpectedTransactionStatus)99; break;
+        }
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(expected.Id, request);
+
+        // Assert
+        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        failure.Errors.First().PropertyName.Should().Be(propertyName);
+        failure.Errors.First().ErrorMessage.Should().Be(FirstUpdateValidatorMessage(request));
+        VerifyNoExpectedWrite(fixture);
+        expected.ExpectedAmount.Should().Be(100m);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: an amount change without a valid reason reports the amount-change message and writes nothing.<br />
+    ///     (VI) Đặc tả hiện trạng: đổi số tiền không có lý do hợp lệ trả message yêu cầu lý do và không ghi gì.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \t ")]
+    public async Task UpdateAsync_ShouldReportAmountChangeReasonMessageWithoutWriting_WhenReasonIsMissing(
+        string? reason)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var request = new ExpectedTransactionUpdateRequest
+        {
+            Id = expected.Id, ExpectedAmount = 120m, AdjustmentReason = reason
+        };
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(expected.Id, request);
+
+        // Assert
+        await act.Should().ThrowAsync<ValidationException>()
+            .WithMessage(CoreFinanceMessages.AmountChangeReasonRequired);
+        VerifyNoExpectedWrite(fixture);
+        expected.ExpectedAmount.Should().Be(100m);
+        expected.IsAdjusted.Should().BeFalse();
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: mismatched route and body IDs report the route-and-request message and write nothing.<br />
+    ///     (VI) Đặc tả hiện trạng: ID route và body không khớp trả message tương ứng và không ghi gì.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_ShouldReportRouteAndRequestIdsMessageWithoutWriting_WhenIdsDiffer()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var request = new ExpectedTransactionUpdateRequest { Id = Id(2), Description = "Changed" };
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(expected.Id, request);
+
+        // Assert
+        await act.Should().ThrowAsync<KeyNotFoundException>()
+            .WithMessage(CoreFinanceMessages.RouteAndRequestIdsMustMatch);
+        VerifyNoExpectedWrite(fixture);
+        expected.Description.Should().Be("Electricity bill");
     }
 }

@@ -1,4 +1,6 @@
 using CoreFinance.Application.DTOs.ExpectedTransaction;
+using CoreFinance.Application.Validators;
+using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using FluentAssertions;
@@ -373,5 +375,110 @@ public partial class ExpectedTransactionServiceTests
         // Assert
         var failure = await act.Should().ThrowAsync<DbUpdateException>();
         failure.Which.Should().BeSameAs(error);
+    }
+
+    private static ExpectedTransactionCreateRequest InvalidCreateRequest(string kind)
+    {
+        var request = new ExpectedTransactionCreateRequest { ExpectedDate = Today, ExpectedAmount = 100m };
+        switch (kind)
+        {
+            case "emptyTemplate": request.RecurringTransactionTemplateId = Guid.Empty; break;
+            case "emptyAccount": request.AccountId = Guid.Empty; break;
+            case "terminalStatus": request.Status = ExpectedTransactionStatus.Confirmed; break;
+            case "zeroAmount": request.ExpectedAmount = 0; break;
+            case "defaultDate": request.ExpectedDate = default; break;
+            default: throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+        }
+
+        return request;
+    }
+
+    private static string FirstValidatorMessage(ExpectedTransactionCreateRequest request) =>
+        new ExpectedTransactionCreateRequestValidator().Validate(request).Errors[0].ErrorMessage;
+
+    /// <summary>
+    ///     (EN) Characterization: single creation reports the first validator failure message and writes nothing.<br />
+    ///     (VI) Đặc tả hiện trạng: tạo đơn lẻ trả message lỗi validator đầu tiên và không ghi gì.
+    /// </summary>
+    [Theory]
+    [InlineData("emptyTemplate", "RecurringTransactionTemplateId", CoreFinanceMessages.TemplateIdMustNotBeEmpty)]
+    [InlineData("emptyAccount", "AccountId", CoreFinanceMessages.AccountIdMustNotBeEmpty)]
+    [InlineData("terminalStatus", "Status", CoreFinanceMessages.NewExpectedTransactionsMustBePending)]
+    [InlineData("zeroAmount", "ExpectedAmount", null)]
+    [InlineData("defaultDate", "ExpectedDate", null)]
+    public async Task CreateAsync_ShouldReportFirstValidatorMessageWithoutWriting_WhenRequestIsInvalid(
+        string kind, string propertyName, string? message)
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var request = InvalidCreateRequest(kind);
+
+        // Act
+        Func<Task> act = () => fixture.Service.CreateAsync(request);
+
+        // Assert
+        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        failure.Errors.First().PropertyName.Should().Be(propertyName);
+        failure.Errors.First().ErrorMessage.Should().Be(message ?? FirstValidatorMessage(request));
+        fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<ExpectedTransaction>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<List<ExpectedTransaction>>()), Times.Never);
+        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        fixture.CreatedExpectedTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: batch creation reports the failing item's first validator message and writes nothing.<br />
+    ///     (VI) Đặc tả hiện trạng: tạo batch trả message lỗi validator đầu tiên của mục sai và không ghi gì.
+    /// </summary>
+    [Theory]
+    [InlineData("emptyTemplate", "RecurringTransactionTemplateId", CoreFinanceMessages.TemplateIdMustNotBeEmpty)]
+    [InlineData("emptyAccount", "AccountId", CoreFinanceMessages.AccountIdMustNotBeEmpty)]
+    [InlineData("terminalStatus", "Status", CoreFinanceMessages.NewExpectedTransactionsMustBePending)]
+    [InlineData("zeroAmount", "ExpectedAmount", null)]
+    public async Task CreateAsync_ShouldReportFirstValidatorMessageWithoutWriting_WhenSecondBatchItemIsInvalid(
+        string kind, string propertyName, string? message)
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var requests = ValidBatch();
+        requests[1] = InvalidCreateRequest(kind);
+
+        // Act
+        Func<Task> act = () => fixture.Service.CreateAsync(requests);
+
+        // Assert
+        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        failure.Errors.First().PropertyName.Should().Be(propertyName);
+        failure.Errors.First().ErrorMessage.Should().Be(message ?? FirstValidatorMessage(requests[1]));
+        fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<List<ExpectedTransaction>>()), Times.Never);
+        fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<ExpectedTransaction>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        fixture.CreatedExpectedTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: with several invalid batch items, only the first item's first message is reported.<br />
+    ///     (VI) Đặc tả hiện trạng: khi nhiều mục batch sai, chỉ message đầu tiên của mục đầu tiên được trả.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldReportOnlyFirstItemMessage_WhenSeveralBatchItemsAreInvalid()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var requests = new List<ExpectedTransactionCreateRequest>
+        {
+            InvalidCreateRequest("emptyAccount"), InvalidCreateRequest("terminalStatus")
+        };
+
+        // Act
+        Func<Task> act = () => fixture.Service.CreateAsync(requests);
+
+        // Assert
+        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        failure.Errors.First().ErrorMessage.Should().Be(CoreFinanceMessages.AccountIdMustNotBeEmpty);
+        fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<List<ExpectedTransaction>>()), Times.Never);
+        fixture.CreatedExpectedTransactions.Should().BeEmpty();
     }
 }

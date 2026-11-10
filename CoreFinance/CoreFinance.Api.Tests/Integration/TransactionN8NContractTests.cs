@@ -1,4 +1,5 @@
 using CoreFinance.Api.Tests.Helpers;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net;
 using System.Text;
@@ -115,6 +116,34 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
     }
 
     /// <summary>
+    /// Create multipart form content from every non-null request property, because the endpoint binds [FromForm] (EN)<br/>
+    /// Tạo multipart form content từ mọi property khác null của request, vì endpoint bind [FromForm] (VI)
+    /// </summary>
+    /// <remarks>
+    /// Numbers use the current culture, which is what form binding parses with in this in-process host;
+    /// dates use the round-trip format so every culture reads them back unchanged.
+    /// </remarks>
+    private static MultipartFormDataContent CreateFormContent(TransactionCreateRequest request)
+    {
+        var formData = new MultipartFormDataContent();
+        foreach (var property in typeof(TransactionCreateRequest).GetProperties())
+        {
+            var value = property.GetValue(request);
+            if (value is null) continue;
+
+            var text = value switch
+            {
+                DateTime date => date.ToString("O", CultureInfo.InvariantCulture),
+                IFormattable formattable => formattable.ToString(null, CultureInfo.CurrentCulture),
+                _ => value.ToString()!
+            };
+            formData.Add(new StringContent(text), property.Name);
+        }
+
+        return formData;
+    }
+
+    /// <summary>
     /// Deserialize HTTP response (EN)<br/>
     /// Deserialize HTTP response (VI)
     /// </summary>
@@ -158,7 +187,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created,
@@ -200,7 +229,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -234,7 +263,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
@@ -261,7 +290,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -288,7 +317,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
@@ -315,7 +344,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest,
@@ -342,7 +371,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -372,7 +401,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -414,7 +443,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created,
@@ -446,7 +475,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().BeOneOf(new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden },
@@ -474,7 +503,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().BeOneOf(new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden });
@@ -504,7 +533,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -555,7 +584,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -613,7 +642,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
             };
 
             // Act
-            var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+            var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
             // Assert
             response.StatusCode.Should().Be(HttpStatusCode.Created,
@@ -643,7 +672,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created,
@@ -689,7 +718,7 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
         };
 
         // Act
-        var response = await _client.PostAsJsonAsync("/api/Transaction", request);
+        var response = await _client.PostAsync("/api/Transaction", CreateFormContent(request));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created,

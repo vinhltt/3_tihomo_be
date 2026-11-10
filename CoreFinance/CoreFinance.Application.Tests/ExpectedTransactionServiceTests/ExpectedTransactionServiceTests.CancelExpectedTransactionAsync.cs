@@ -1,4 +1,6 @@
 using CoreFinance.Application.Enums;
+using CoreFinance.Domain.Constants;
+using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -161,5 +163,162 @@ public partial class ExpectedTransactionServiceTests
         view.ExpectedAmount.Should().Be(100m);
         view.ActualTransactionId.Should().BeNull();
         fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a successful cancellation reports the success code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: hủy thành công trả mã và message thành công.
+    /// </summary>
+    [Fact]
+    public async Task CancelExpectedTransactionAsync_ShouldReturnSuccessCodeAndMessage_WhenReasonIsValid()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, "No bill this month");
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.Success);
+        result.Code.Should().Be(CoreFinanceErrorCodes.Success);
+        result.Message.Should().Be(CoreFinanceMessages.ExpectedTransactionCancelled);
+        result.ExpectedTransactionId.Should().Be(expected.Id);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: null, empty, whitespace and 501-character reasons report the invalid-reason code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: lý do null, rỗng, khoảng trắng và 501 ký tự trả mã và message invalid_reason.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(" \t ")]
+    [InlineData("501")]
+    public async Task CancelExpectedTransactionAsync_ShouldReturnInvalidReasonCodeAndMessage_WhenReasonIsInvalid(
+        string? reason)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var input = reason == "501" ? new string('r', 501) : reason;
+
+        // Act
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, input!);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidReason, CoreFinanceMessages.ReasonRequired);
+        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        fixture.ExpectedRepository.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    ///     (EN) An invalid cancellation reason on an otherwise cancellable pending period writes nothing and leaves it pending.<br />
+    ///     (VI) Lý do hủy không hợp lệ trên kỳ chờ có thể hủy không ghi gì và giữ kỳ ở trạng thái chờ.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \t ")]
+    [InlineData("501")]
+    public async Task CancelExpectedTransactionAsync_ShouldNotWriteAnything_WhenReasonIsInvalid(string? reason)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var input = reason == "501" ? new string('r', 501) : reason;
+
+        // Act
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, input!);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidReason, CoreFinanceMessages.ReasonRequired);
+        AssertNothingWritten(fixture);
+        AssertPeriodUnchanged(expected);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: an unknown or soft-deleted period reports not-found even when the reason is also invalid.<br />
+    ///     (VI) Đặc tả hiện trạng: kỳ không tồn tại hoặc xóa mềm trả not_found kể cả khi lý do cũng sai.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelExpectedTransactionAsync_ShouldReturnNotFoundCodeAndMessage_WhenPeriodIsMissingAndReasonIsInvalid(
+        bool softDeleted)
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        if (softDeleted)
+        {
+            var tombstone = Expected(1);
+            tombstone.IsDeleted = "20261008090000";
+            fixture.ExpectedTransactions.Add(tombstone);
+        }
+
+        // Act
+        var result = await fixture.Service.CancelExpectedTransactionAsync(Id(1), "");
+
+        // Assert
+        AssertActionFailure(result, Id(1), ExpectedTransactionActionOutcome.NotFound,
+            CoreFinanceErrorCodes.ExpectedTransactionNotFound, CoreFinanceMessages.ExpectedTransactionNotFound);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a non-pending or linked period reports the state-conflict code and message, even when the reason is invalid.<br />
+    ///     (VI) Đặc tả hiện trạng: kỳ không ở trạng thái chờ hoặc đã liên kết trả mã và message state_conflict, kể cả khi lý do sai.
+    /// </summary>
+    [Theory]
+    [InlineData(ExpectedTransactionStatus.Confirmed, "Replacement reason")]
+    [InlineData(ExpectedTransactionStatus.Cancelled, "")]
+    [InlineData(ExpectedTransactionStatus.Completed, null)]
+    [InlineData(ExpectedTransactionStatus.Pending, "   ")]
+    public async Task CancelExpectedTransactionAsync_ShouldReturnStateConflictCodeAndMessage_WhenPeriodIsNotAvailable(
+        ExpectedTransactionStatus status, string? reason)
+    {
+        // Arrange
+        var expected = Expected(1, status: status);
+        if (status == ExpectedTransactionStatus.Pending) expected.ActualTransactionId = ActualId;
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, reason!);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.Conflict,
+            CoreFinanceErrorCodes.StateConflict, CoreFinanceMessages.PendingTransactionRequired);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: write or commit failures report the persistence code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: lỗi ghi hoặc commit trả mã và message lỗi lưu trữ.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelExpectedTransactionAsync_ShouldReturnPersistenceCodeAndMessage_WhenWriteOrCommitFails(
+        bool commit)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        if (commit)
+            fixture.Transaction.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("Commit failed"));
+        else
+            fixture.UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DbUpdateException("Write failed"));
+
+        // Act
+        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, "No bill");
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.PersistenceError,
+            CoreFinanceErrorCodes.PersistenceError, CoreFinanceMessages.OperationCouldNotBeSaved);
+        fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

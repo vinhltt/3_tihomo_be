@@ -17,9 +17,8 @@ public class CreateAccountRequestValidator : AbstractValidator<AccountCreateRequ
     public CreateAccountRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
-        RuleFor(x => x.Type).NotEmpty();
+        RuleFor(x => x.Type).IsInEnum();
         RuleFor(x => x.Currency).NotEmpty().MaximumLength(10);
-        RuleFor(x => x.InitialBalance).GreaterThanOrEqualTo(0);
 
         // Code validation rules - only apply when Code is provided
         // Quy tắc xác thực Code - chỉ áp dụng khi Code được cung cấp

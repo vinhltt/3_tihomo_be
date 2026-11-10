@@ -28,7 +28,7 @@ public partial class TransactionServiceTests
         var unitOfWorkMock = new Mock<IUnitOfWork>();
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.DeleteSoftAsync(transactionId);
@@ -52,7 +52,7 @@ public partial class TransactionServiceTests
         var unitOfWorkMock = new Mock<IUnitOfWork>();
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.DeleteSoftAsync(transactionId);
@@ -78,7 +78,7 @@ public partial class TransactionServiceTests
         var unitOfWorkMock = new Mock<IUnitOfWork>();
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.DeleteSoftAsync(transactionId);
@@ -105,7 +105,7 @@ public partial class TransactionServiceTests
         var unitOfWorkMock = new Mock<IUnitOfWork>();
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.DeleteSoftAsync(transactionId);
@@ -133,7 +133,7 @@ public partial class TransactionServiceTests
         var unitOfWorkMock = new Mock<IUnitOfWork>();
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.DeleteSoftAsync(transactionId);

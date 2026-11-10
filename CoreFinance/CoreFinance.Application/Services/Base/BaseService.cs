@@ -1,6 +1,7 @@
 using AutoMapper;
 using CoreFinance.Application.Utilities;
 using CoreFinance.Domain.UnitOfWorks;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Shared.Contracts.Exceptions;
@@ -22,7 +23,9 @@ public abstract class BaseService<TEntity, TCreateRequest, TUpdateRequest, TView
     TKey>(
     IMapper mapper,
     IUnitOfWork unitOfWork,
-    ILogger logger
+    ILogger logger,
+    IValidator<TCreateRequest> createValidator,
+    IValidator<TUpdateRequest> updateValidator
 )
     : IBaseService<TEntity, TCreateRequest, TUpdateRequest, TViewModel, TKey>
     where TEntity : UserOwnedEntity<TKey>, new()
@@ -31,6 +34,22 @@ public abstract class BaseService<TEntity, TCreateRequest, TUpdateRequest, TView
     where TViewModel : BaseViewModel<TKey>, new()
 {
     protected readonly IMapper Mapper = mapper;
+
+    /// <summary>
+    ///     Validates a create request and throws when any rule fails. (EN)<br />
+    ///     Kiểm tra request tạo mới và ném lỗi khi có rule không đạt. (VI)
+    /// </summary>
+    /// <param name="request">The create request to validate.</param>
+    /// <exception cref="ValidationException">Thrown when the request violates a validation rule.</exception>
+    protected void ValidateCreate(TCreateRequest request) => createValidator.ValidateAndThrow(request);
+
+    /// <summary>
+    ///     Validates an update request and throws when any rule fails. (EN)<br />
+    ///     Kiểm tra request cập nhật và ném lỗi khi có rule không đạt. (VI)
+    /// </summary>
+    /// <param name="request">The update request to validate.</param>
+    /// <exception cref="ValidationException">Thrown when the request violates a validation rule.</exception>
+    protected void ValidateUpdate(TUpdateRequest request) => updateValidator.ValidateAndThrow(request);
 
     /// <summary>
     ///     Deletes an entity permanently by its identifier asynchronously. (EN)<br />
@@ -105,13 +124,15 @@ public abstract class BaseService<TEntity, TCreateRequest, TUpdateRequest, TView
     /// </returns>
     public virtual async Task<TViewModel?> UpdateAsync(TKey id, TUpdateRequest request)
     {
+        logger.LogTrace("{UpdateAsync} request: {id}, {request}", nameof(UpdateAsync), id,
+            request.TryParseToString());
+        if (id is null || !id.Equals(request.Id))
+            throw new KeyNotFoundException();
+        ValidateUpdate(request);
+
         await using var trans = await unitOfWork.BeginTransactionAsync();
         try
         {
-            logger.LogTrace("{UpdateAsync} request: {id}, {request}", nameof(UpdateAsync), id,
-                request.TryParseToString());
-            if (id is null || !id.Equals(request.Id))
-                throw new KeyNotFoundException();
             var entity = await unitOfWork.Repository<TEntity, TKey>().GetByIdAsync(id);
             logger.LogTrace("{UpdateAsync} old entity: {entity}", nameof(UpdateAsync), entity.TryParseToString());
 
@@ -155,6 +176,8 @@ public abstract class BaseService<TEntity, TCreateRequest, TUpdateRequest, TView
     /// <exception cref="NullReferenceException"></exception>
     public virtual async Task<TViewModel?> CreateAsync(TCreateRequest request)
     {
+        ValidateCreate(request);
+
         await using var trans = await unitOfWork.BeginTransactionAsync();
         try
         {            
@@ -223,6 +246,9 @@ public abstract class BaseService<TEntity, TCreateRequest, TUpdateRequest, TView
             logger.LogInformation("Request Is Empty");
             return new List<TViewModel>();
         }
+
+        foreach (var item in request)
+            ValidateCreate(item);
 
         await using var trans = await unitOfWork.BeginTransactionAsync();
         try

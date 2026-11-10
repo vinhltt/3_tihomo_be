@@ -6,6 +6,7 @@ using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -53,7 +54,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.CreateAsync(createRequests);
@@ -87,7 +88,7 @@ public partial class AccountServiceTests
         // BeginTransactionAsync should not be called for empty list as per BaseService logic
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.CreateAsync(createRequests);
@@ -131,7 +132,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.CreateAsync(createRequests);
@@ -175,7 +176,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.CreateAsync(createRequests);
@@ -188,5 +189,37 @@ public partial class AccountServiceTests
         transactionMock.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
         transactionMock.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
         transactionMock.Verify(t => t.DisposeAsync(), Times.Once);
+    }
+
+    /// <summary>
+    ///     Verifies that CreateAsync (list version) rejects the whole batch when only one item is invalid, before opening a
+    ///     transaction or writing to the repository. (EN)<br />
+    ///     Xác minh rằng CreateAsync (phiên bản danh sách) từ chối cả lô khi chỉ một phần tử không hợp lệ, trước khi mở giao
+    ///     dịch hoặc ghi vào repository. (VI)
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_List_ShouldThrowValidationExceptionWithoutWriting_WhenOneItemIsInvalid()
+    {
+        // Arrange
+        var createRequests = new List<AccountCreateRequest>
+        {
+            new() { Name = "Valid Wallet", Type = AccountType.Wallet, Currency = "USD", UserId = Guid.CreateVersion7() },
+            new() { Name = "", Type = AccountType.Bank, Currency = "USD", UserId = Guid.CreateVersion7() }
+        };
+        var repoMock = new Mock<IBaseRepository<Account, Guid>>();
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
+        var loggerMock = new Mock<ILogger<AccountService>>();
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+
+        // Act
+        Func<Task> act = async () => await service.CreateAsync(createRequests);
+
+        // Assert
+        (await act.Should().ThrowAsync<FluentValidation.ValidationException>())
+            .Which.Errors.Should().Contain(error => error.PropertyName == nameof(AccountCreateRequest.Name));
+        repoMock.Verify(r => r.CreateAsync(It.IsAny<List<Account>>()), Times.Never);
+        repoMock.Verify(r => r.CreateAsync(It.IsAny<Account>(), It.IsAny<CancellationToken>()), Times.Never);
+        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
     }
 }

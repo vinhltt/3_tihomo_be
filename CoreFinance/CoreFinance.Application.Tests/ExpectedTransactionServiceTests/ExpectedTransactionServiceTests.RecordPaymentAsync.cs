@@ -3,6 +3,7 @@ using CoreFinance.Application.DTOs.ExpectedTransaction;
 using CoreFinance.Application.DTOs.Transaction;
 using CoreFinance.Application.Enums;
 using CoreFinance.Application.Interfaces;
+using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using FluentAssertions;
@@ -377,6 +378,30 @@ public partial class ExpectedTransactionServiceTests
     }
 
     /// <summary>
+    ///     (EN) A null request or an explicitly empty account ID on an otherwise payable pending period writes nothing and leaves it pending.<br />
+    ///     (VI) Request null hoặc ID tài khoản rỗng trên kỳ chờ có thể thanh toán không ghi gì và giữ kỳ ở trạng thái chờ.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecordPaymentAsync_ShouldNotWriteAnything_WhenRequestIsNullOrAccountIdIsEmpty(bool nullRequest)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var request = nullRequest ? null : new RecordPaymentRequest { AccountId = Guid.Empty };
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, request!);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidRequest, CoreFinanceMessages.ValidPaymentRequestRequired);
+        AssertNothingWritten(fixture);
+        AssertPeriodUnchanged(expected);
+    }
+
+    /// <summary>
     ///     (EN) A null or identity-less actual result cannot confirm a period or expose payment success.<br />
     ///     (VI) Kết quả giao dịch thực null hoặc thiếu ID không được xác nhận kỳ hay trả thanh toán thành công.
     /// </summary>
@@ -607,5 +632,318 @@ public partial class ExpectedTransactionServiceTests
         result.Outcome.Should().Be(outcome);
         result.ActualTransaction.Should().BeNull();
         result.ActualTransactionId.Should().BeNull();
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a recorded payment reports the success code and message with the new actual.<br />
+    ///     (VI) Đặc tả hiện trạng: ghi nhận thanh toán trả mã và message thành công cùng giao dịch thực mới.
+    /// </summary>
+    [Fact]
+    public async Task RecordPaymentAsync_ShouldReturnSuccessCodeAndMessage_WhenPaymentIsRecorded()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.Success);
+        result.Code.Should().Be(CoreFinanceErrorCodes.Success);
+        result.Message.Should().Be(CoreFinanceMessages.PaymentRecorded);
+        result.ExpectedTransactionId.Should().Be(expected.Id);
+        result.ActualTransaction.Should().NotBeNull();
+        result.ActualTransactionId.Should().Be(result.ActualTransaction!.Id);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a null request or an explicit empty account ID reports the invalid-request code and payment-request message.<br />
+    ///     (VI) Đặc tả hiện trạng: request null hoặc ID tài khoản rỗng được truyền rõ ràng trả mã invalid_request và message yêu cầu thanh toán hợp lệ.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task RecordPaymentAsync_ShouldReturnInvalidRequestCodeAndMessage_WhenRequestIsNullOrAccountIdIsEmpty(
+        bool bound, bool nullRequest)
+    {
+        // Arrange
+        var expected = Expected(1);
+        if (!bound) expected.AccountId = null;
+        var fixture = CreateFixture(expected);
+        var request = nullRequest ? null : new RecordPaymentRequest { AccountId = Guid.Empty };
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, request!);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidRequest, CoreFinanceMessages.ValidPaymentRequestRequired);
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a transfer period reports the unsupported-type code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: kỳ chuyển khoản trả mã và message loại giao dịch không được hỗ trợ.
+    /// </summary>
+    [Fact]
+    public async Task RecordPaymentAsync_ShouldReturnUnsupportedTypeCodeAndMessage_WhenPeriodIsTransfer()
+    {
+        // Arrange
+        var expected = Expected(1, type: RecurringTransactionType.Transfer);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.UnsupportedTransactionType, CoreFinanceMessages.PaymentTransactionTypeUnsupported);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a zero or negative period amount reports the invalid-amount code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: số tiền của kỳ bằng 0 hoặc âm trả mã và message invalid_amount.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task RecordPaymentAsync_ShouldReturnInvalidAmountCodeAndMessage_WhenPeriodAmountIsNotPositive(
+        int amount)
+    {
+        // Arrange
+        var expected = Expected(1, amount: amount);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidAmount, CoreFinanceMessages.ExpectedAmountMustBePositive);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a request naming a different account for a bound period reports the override code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: request chọn tài khoản khác cho kỳ đã gắn tài khoản trả mã và message không cho ghi đè.
+    /// </summary>
+    [Fact]
+    public async Task RecordPaymentAsync_ShouldReturnOverrideCodeAndMessage_WhenRequestOverridesBoundAccount()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id,
+            new RecordPaymentRequest { AccountId = Id(950) });
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.AccountOverrideNotAllowed, CoreFinanceMessages.BoundAccountCannotBeOverridden);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: an unbound period without a selected account reports the account-required code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: kỳ chưa gắn tài khoản và không chọn tài khoản trả mã và message account_required.
+    /// </summary>
+    [Fact]
+    public async Task RecordPaymentAsync_ShouldReturnAccountRequiredCodeAndMessage_WhenNoAccountIsAvailable()
+    {
+        // Arrange
+        var expected = Expected(1);
+        expected.AccountId = null;
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.AccountRequired, CoreFinanceMessages.PaymentAccountRequired);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a missing or foreign payment account reports the account-not-found code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: tài khoản thanh toán thiếu hoặc khác chủ trả mã và message account_not_found.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecordPaymentAsync_ShouldReturnAccountNotFoundCodeAndMessage_WhenAccountIsMissingOrForeign(
+        bool foreign)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        if (foreign) fixture.Accounts.Single().UserId = OtherOwnerId;
+        else fixture.Accounts.Clear();
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.NotFound,
+            CoreFinanceErrorCodes.AccountNotFound, CoreFinanceMessages.AccountNotFound);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: an unknown or soft-deleted period reports not-found even when the request is invalid.<br />
+    ///     (VI) Đặc tả hiện trạng: kỳ không tồn tại hoặc xóa mềm trả not_found kể cả khi request sai.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecordPaymentAsync_ShouldReturnNotFoundCodeAndMessage_WhenPeriodIsMissingAndRequestIsInvalid(
+        bool softDeleted)
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        if (softDeleted)
+        {
+            var tombstone = Expected(1);
+            tombstone.IsDeleted = "20261008090000";
+            fixture.ExpectedTransactions.Add(tombstone);
+        }
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(Id(1), new RecordPaymentRequest { AccountId = Guid.Empty });
+
+        // Assert
+        AssertActionFailure(result, Id(1), ExpectedTransactionActionOutcome.NotFound,
+            CoreFinanceErrorCodes.ExpectedTransactionNotFound, CoreFinanceMessages.ExpectedTransactionNotFound);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a non-pending or linked period reports the state-conflict code and message, even when the request is invalid.<br />
+    ///     (VI) Đặc tả hiện trạng: kỳ không ở trạng thái chờ hoặc đã liên kết trả mã và message state_conflict, kể cả khi request sai.
+    /// </summary>
+    [Theory]
+    [InlineData(ExpectedTransactionStatus.Confirmed, false)]
+    [InlineData(ExpectedTransactionStatus.Cancelled, true)]
+    [InlineData(ExpectedTransactionStatus.Completed, false)]
+    [InlineData(ExpectedTransactionStatus.Pending, true)]
+    public async Task RecordPaymentAsync_ShouldReturnStateConflictCodeAndMessage_WhenPeriodIsNotAvailable(
+        ExpectedTransactionStatus status, bool emptyAccountId)
+    {
+        // Arrange
+        var expected = Expected(1, status: status);
+        if (status == ExpectedTransactionStatus.Pending) expected.ActualTransactionId = ActualId;
+        var fixture = CreateFixture(expected);
+        var request = new RecordPaymentRequest { AccountId = emptyAccountId ? Guid.Empty : null };
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, request);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.Conflict,
+            CoreFinanceErrorCodes.StateConflict, CoreFinanceMessages.PendingTransactionRequired);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: write or actual-creation failures report the persistence code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: lỗi ghi hoặc tạo giao dịch thực trả mã và message lỗi lưu trữ.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecordPaymentAsync_ShouldReturnPersistenceCodeAndMessage_WhenActualCreationOrPeriodWriteFails(
+        bool periodWrite)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        if (periodWrite)
+            fixture.ExpectedRepository.Setup(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DbUpdateException("Write failed"));
+        else
+            fixture.ActualRepository.Setup(r => r.CreateAsync(It.IsAny<Transaction>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DbUpdateException("Insert failed"));
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.PersistenceError,
+            CoreFinanceErrorCodes.PersistenceError, CoreFinanceMessages.OperationCouldNotBeSaved);
+        fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a stale period write reports the concurrency code and the period-changed message.<br />
+    ///     (VI) Đặc tả hiện trạng: ghi kỳ trên bản cũ trả mã concurrency_conflict và message kỳ đã thay đổi.
+    /// </summary>
+    [Fact]
+    public async Task RecordPaymentAsync_ShouldReturnConcurrencyCodeAndMessage_WhenPeriodWriteIsStale()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        fixture.ExpectedRepository.Setup(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DbUpdateConcurrencyException("Stale period"));
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.Conflict,
+            CoreFinanceErrorCodes.ConcurrencyConflict, CoreFinanceMessages.PeriodChanged);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: the actual-link unique violation reports the already-linked code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: vi phạm unique liên kết thực trả mã và message already_linked.
+    /// </summary>
+    [Fact]
+    public async Task RecordPaymentAsync_ShouldReturnAlreadyLinkedCodeAndMessage_WhenUniqueIndexRejectsLink()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var postgresError = new PostgresException("Write rejected", "ERROR", "ERROR",
+            PostgresErrorCodes.UniqueViolation, constraintName: "ux_expected_actual_transaction");
+        fixture.ExpectedRepository.Setup(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new DbUpdateException("Write failed", postgresError));
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.Conflict,
+            CoreFinanceErrorCodes.AlreadyLinked, CoreFinanceMessages.ActualTransactionAlreadyLinked);
+    }
+
+    /// <summary>
+    ///     (EN) A period with an unset date is rejected by the actual transaction validator as an invalid request: the
+    ///     period stays pending and nothing is written.<br />
+    ///     (VI) Kỳ chưa có ngày bị validator giao dịch thực từ chối như yêu cầu không hợp lệ: kỳ vẫn chờ và không ghi gì.
+    /// </summary>
+    [Fact]
+    public async Task RecordPaymentAsync_ShouldReturnInvalidRequest_WhenPeriodDateIsUnset()
+    {
+        // Arrange
+        var expected = Expected(1);
+        expected.ExpectedDate = default;
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.RecordPaymentAsync(expected.Id, new RecordPaymentRequest());
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidRequest, CoreFinanceMessages.InvalidValues);
+        expected.Status.Should().Be(ExpectedTransactionStatus.Pending);
+        expected.ActualTransactionId.Should().BeNull();
+        expected.ProcessedAt.Should().BeNull();
+        fixture.CreatedActualTransactions.Should().BeEmpty();
+        fixture.ActualRepository.Verify(r => r.CreateAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+        fixture.ActualRepository.Verify(r => r.CreateAsync(It.IsAny<Transaction>()), Times.Never);
     }
 }

@@ -1,4 +1,5 @@
 using CoreFinance.Application.DTOs.ExpectedTransaction;
+using CoreFinance.Domain.Constants;
 using FluentValidation;
 
 namespace CoreFinance.Application.Validators;
@@ -15,6 +16,7 @@ public class ConfirmTransactionRequestValidator : AbstractValidator<ConfirmTrans
     /// </summary>
     public ConfirmTransactionRequestValidator()
     {
-        RuleFor(x => x.ActualTransactionId).NotEmpty();
+        RuleFor(x => x.ActualTransactionId)
+            .NotEmpty().WithMessage(CoreFinanceMessages.ActualTransactionIdRequired).WithErrorCode(CoreFinanceErrorCodes.InvalidActualTransaction);
     }
 }

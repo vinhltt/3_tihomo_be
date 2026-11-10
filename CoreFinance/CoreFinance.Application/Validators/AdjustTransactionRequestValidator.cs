@@ -1,4 +1,5 @@
 using CoreFinance.Application.DTOs.ExpectedTransaction;
+using CoreFinance.Domain.Constants;
 using FluentValidation;
 
 namespace CoreFinance.Application.Validators;
@@ -15,7 +16,10 @@ public class AdjustTransactionRequestValidator : AbstractValidator<AdjustTransac
     /// </summary>
     public AdjustTransactionRequestValidator()
     {
-        RuleFor(x => x.NewAmount).GreaterThanOrEqualTo(0);
-        RuleFor(x => x.Reason).NotEmpty().When(x => !string.IsNullOrEmpty(x.Reason)); // Validate if reason is provided
+        RuleFor(x => x.NewAmount)
+            .GreaterThan(0).WithMessage(CoreFinanceMessages.ExpectedAmountMustBePositive).WithErrorCode(CoreFinanceErrorCodes.InvalidAmount);
+        RuleFor(x => x.Reason)
+            .NotEmpty().WithMessage(CoreFinanceMessages.ReasonRequired).WithErrorCode(CoreFinanceErrorCodes.InvalidReason)
+            .MaximumLength(500).WithMessage(CoreFinanceMessages.ReasonRequired).WithErrorCode(CoreFinanceErrorCodes.InvalidReason);
     }
 }
