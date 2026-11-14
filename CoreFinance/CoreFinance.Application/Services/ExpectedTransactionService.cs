@@ -5,7 +5,6 @@ using CoreFinance.Application.Enums;
 using CoreFinance.Application.Interfaces;
 using CoreFinance.Application.Services.Base;
 using CoreFinance.Application.Utilities;
-using CoreFinance.Application.Validators;
 using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
@@ -28,16 +27,20 @@ public class ExpectedTransactionService(
     IUnitOfWork unitOfWork,
     ILogger<ExpectedTransactionService> logger,
     ITransactionService transactionService,
-    BusinessCalendar calendar)
+    BusinessCalendar calendar,
+    IValidator<ExpectedTransactionCreateRequest> createValidator,
+    IValidator<ExpectedTransactionUpdateRequest> updateValidator,
+    IValidator<ConfirmTransactionRequest> confirmValidator,
+    IValidator<CancelTransactionRequest> cancelValidator,
+    IValidator<AdjustTransactionRequest> adjustValidator,
+    IValidator<RecordPaymentRequest> paymentValidator)
     : BaseService<ExpectedTransaction, ExpectedTransactionCreateRequest,
-            ExpectedTransactionUpdateRequest, ExpectedTransactionViewModel, Guid>(mapper, unitOfWork, logger),
+            ExpectedTransactionUpdateRequest, ExpectedTransactionViewModel, Guid>(mapper, unitOfWork, logger,
+            createValidator, updateValidator),
         IExpectedTransactionService
 {
     private const int ReminderWindowDays = 7;
     private readonly IUnitOfWork _unitOfWork = unitOfWork;
-    private static readonly ExpectedTransactionCreateRequestValidator CreateValidator = new();
-    private static readonly ExpectedTransactionUpdateRequestValidator UpdateValidator = new();
-    private static readonly RecordPaymentRequestValidator PaymentValidator = new();
 
     // No Include or entity-to-view mapping here: the shared projection masks foreign navigation fields in SQL.
     private IQueryable<ExpectedTransactionViewModel> Query(DateTime todayUtc7)
@@ -172,8 +175,8 @@ public class ExpectedTransactionService(
     /// <remarks>See <see cref="IExpectedTransactionService" /> for Pending-only creation, owner and atomicity guarantees.</remarks>
     public override async Task<ExpectedTransactionViewModel?> CreateAsync(ExpectedTransactionCreateRequest request)
     {
-        CreateValidator.ValidateAndThrow(request);
-        await ValidateReferencesAsync(request);
+        ValidateCreate(request);
+        await ValidateReferencesAsync([request]);
         await using var trans = await _unitOfWork.BeginTransactionAsync();
         try
         {
@@ -200,11 +203,8 @@ public class ExpectedTransactionService(
         List<ExpectedTransactionCreateRequest> request)
     {
         if (request.Count == 0) return Array.Empty<ExpectedTransactionViewModel>();
-        foreach (var item in request)
-        {
-            CreateValidator.ValidateAndThrow(item);
-            await ValidateReferencesAsync(item);
-        }
+        ValidateCreateRange(request);
+        await ValidateReferencesAsync(request);
 
         await using var trans = await _unitOfWork.BeginTransactionAsync();
         try
@@ -228,15 +228,28 @@ public class ExpectedTransactionService(
         }
     }
 
-    private async Task ValidateReferencesAsync(ExpectedTransactionCreateRequest request)
+    // One owner-scoped query per reference type, then items are walked in order (account before template)
+    // so the first missing reference throws the same exception and message as a per-item check would.
+    private async Task ValidateReferencesAsync(List<ExpectedTransactionCreateRequest> requests)
     {
-        if (request.AccountId is { } accountId &&
-            !await _unitOfWork.Repository<Account, Guid>().GetNoTrackingEntities().AnyAsync(a => a.Id == accountId))
-            throw new EntityNotFoundException(CoreFinanceMessages.AccountNotFound);
-        if (request.RecurringTransactionTemplateId is { } templateId &&
-            !await _unitOfWork.Repository<RecurringTransactionTemplate, Guid>().GetNoTrackingEntities()
-                .AnyAsync(t => t.Id == templateId))
-            throw new EntityNotFoundException(CoreFinanceMessages.RecurringTransactionTemplateNotFound);
+        var accountIds = requests.Select(r => r.AccountId).OfType<Guid>().Distinct().ToList();
+        var templateIds = requests.Select(r => r.RecurringTransactionTemplateId).OfType<Guid>().Distinct().ToList();
+        var existingAccountIds = accountIds.Count == 0
+            ? []
+            : (await _unitOfWork.Repository<Account, Guid>().GetNoTrackingEntities()
+                .Where(a => accountIds.Contains(a.Id)).Select(a => a.Id).ToListAsync()).ToHashSet();
+        var existingTemplateIds = templateIds.Count == 0
+            ? []
+            : (await _unitOfWork.Repository<RecurringTransactionTemplate, Guid>().GetNoTrackingEntities()
+                .Where(t => templateIds.Contains(t.Id)).Select(t => t.Id).ToListAsync()).ToHashSet();
+
+        foreach (var request in requests)
+        {
+            if (request.AccountId is { } accountId && !existingAccountIds.Contains(accountId))
+                throw new EntityNotFoundException(CoreFinanceMessages.AccountNotFound);
+            if (request.RecurringTransactionTemplateId is { } templateId && !existingTemplateIds.Contains(templateId))
+                throw new EntityNotFoundException(CoreFinanceMessages.RecurringTransactionTemplateNotFound);
+        }
     }
 
     /// <inheritdoc />
@@ -244,7 +257,7 @@ public class ExpectedTransactionService(
     public override async Task<ExpectedTransactionViewModel?> UpdateAsync(Guid id, ExpectedTransactionUpdateRequest request)
     {
         if (id != request.Id) throw new KeyNotFoundException(CoreFinanceMessages.RouteAndRequestIdsMustMatch);
-        UpdateValidator.ValidateAndThrow(request);
+        ValidateUpdate(request);
         await using var trans = await _unitOfWork.BeginTransactionAsync();
         try
         {
@@ -302,7 +315,7 @@ public class ExpectedTransactionService(
     {
         return ExecutePendingActionAsync(expectedTransactionId, async (entity, token) =>
         {
-            if (request == null || !PaymentValidator.Validate(request).IsValid)
+            if (request == null || !paymentValidator.Validate(request).IsValid)
                 return Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, CoreFinanceErrorCodes.InvalidRequest, CoreFinanceMessages.ValidPaymentRequestRequired);
             if (entity.TransactionType is not (RecurringTransactionType.Income or RecurringTransactionType.Expense))
                 return Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, CoreFinanceErrorCodes.UnsupportedTransactionType, CoreFinanceMessages.PaymentTransactionTypeUnsupported);
@@ -320,17 +333,30 @@ public class ExpectedTransactionService(
 
             token.ThrowIfCancellationRequested();
             // Do not mutate the tracked period before CreateAsync: its SaveChanges must not advance our original xmin.
-            var actual = await transactionService.CreateAsync(new TransactionCreateRequest
+            TransactionViewModel? actual;
+            try
             {
-                AccountId = accountId.Value,
-                UserId = entity.UserId,
-                TransactionDate = entity.ExpectedDate,
-                RevenueAmount = entity.TransactionType == RecurringTransactionType.Income ? entity.ExpectedAmount : 0,
-                SpentAmount = entity.TransactionType == RecurringTransactionType.Expense ? entity.ExpectedAmount : 0,
-                CategoryType = entity.TransactionType == RecurringTransactionType.Income ? CategoryType.Income : CategoryType.Expense,
-                CategorySummary = entity.Category,
-                Description = entity.Description
-            });
+                actual = await transactionService.CreateAsync(new TransactionCreateRequest
+                {
+                    AccountId = accountId.Value,
+                    UserId = entity.UserId,
+                    TransactionDate = entity.ExpectedDate,
+                    RevenueAmount = entity.TransactionType == RecurringTransactionType.Income ? entity.ExpectedAmount : 0,
+                    SpentAmount = entity.TransactionType == RecurringTransactionType.Expense ? entity.ExpectedAmount : 0,
+                    CategoryType = entity.TransactionType == RecurringTransactionType.Income ? CategoryType.Income : CategoryType.Expense,
+                    CategorySummary = entity.Category,
+                    Description = entity.Description
+                });
+            }
+            catch (ValidationException ex)
+            {
+                // Log field names and error codes only: the exception text and attempted values may carry user input.
+                foreach (var error in ex.Errors)
+                    logger.LogWarning("Actual transaction validation failed while recording payment: {PropertyName} {ErrorCode}",
+                        error.PropertyName, error.ErrorCode);
+                // The actual transaction validator runs before any write, so the period is still untouched here.
+                return Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, CoreFinanceErrorCodes.InvalidRequest, CoreFinanceMessages.InvalidValues);
+            }
             if (actual == null || actual.Id == Guid.Empty)
                 throw new CreateFailedException(CoreFinanceMessages.ActualTransactionCreateFailed);
 
@@ -345,8 +371,9 @@ public class ExpectedTransactionService(
     {
         return ExecutePendingActionAsync(expectedTransactionId, async (entity, token) =>
         {
-            if (actualTransactionId == Guid.Empty)
-                return Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, CoreFinanceErrorCodes.InvalidActualTransaction, CoreFinanceMessages.ActualTransactionIdRequired);
+            var validation = confirmValidator.Validate(new ConfirmTransactionRequest { ActualTransactionId = actualTransactionId });
+            if (!validation.IsValid)
+                return Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, validation.Errors[0].ErrorCode, validation.Errors[0].ErrorMessage);
             var actual = await _unitOfWork.Repository<Transaction, Guid>().GetByIdNoTrackingAsync(actualTransactionId);
             if (actual == null || actual.IsDeleted != null || actual.UserId != entity.UserId)
                 return Failure(entity.Id, ExpectedTransactionActionOutcome.NotFound, CoreFinanceErrorCodes.ActualTransactionNotFound, CoreFinanceMessages.ActualTransactionNotFound);
@@ -368,8 +395,9 @@ public class ExpectedTransactionService(
     {
         return ExecutePendingActionAsync(expectedTransactionId, (entity, _) =>
         {
-            if (!ValidReason(reason))
-                return ValueTask.FromResult(Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, CoreFinanceErrorCodes.InvalidReason, CoreFinanceMessages.ReasonRequired));
+            var validation = cancelValidator.Validate(new CancelTransactionRequest { Reason = reason });
+            if (!validation.IsValid)
+                return ValueTask.FromResult(Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, validation.Errors[0].ErrorCode, validation.Errors[0].ErrorMessage));
             entity.Status = ExpectedTransactionStatus.Cancelled;
             entity.AdjustmentReason = reason;
             entity.ProcessedAt = DateTime.UtcNow;
@@ -383,10 +411,9 @@ public class ExpectedTransactionService(
     {
         return ExecutePendingActionAsync(expectedTransactionId, (entity, _) =>
         {
-            if (newAmount <= 0)
-                return ValueTask.FromResult(Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, CoreFinanceErrorCodes.InvalidAmount, CoreFinanceMessages.ExpectedAmountMustBePositive));
-            if (!ValidReason(reason))
-                return ValueTask.FromResult(Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, CoreFinanceErrorCodes.InvalidReason, CoreFinanceMessages.ReasonRequired));
+            var validation = adjustValidator.Validate(new AdjustTransactionRequest { NewAmount = newAmount, Reason = reason });
+            if (!validation.IsValid)
+                return ValueTask.FromResult(Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, validation.Errors[0].ErrorCode, validation.Errors[0].ErrorMessage));
             ApplyAdjustment(entity, newAmount, reason);
             return ValueTask.FromResult(Success(entity, CoreFinanceMessages.ExpectedTransactionAdjusted));
         }, cancellationToken);
@@ -468,7 +495,8 @@ public class ExpectedTransactionService(
         }
     }
 
-    private static bool ValidReason(string? reason) => !string.IsNullOrWhiteSpace(reason) && reason.Length <= 500;
+    private static bool ValidReason(string? reason) =>
+        !string.IsNullOrWhiteSpace(reason) && reason.Length <= CoreFinanceMessages.MaxReasonLength;
 
     private static void ApplyAdjustment(ExpectedTransaction entity, decimal amount, string reason)
     {

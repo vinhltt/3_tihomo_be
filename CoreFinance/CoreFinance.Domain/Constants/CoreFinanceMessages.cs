@@ -223,6 +223,11 @@ public static class CoreFinanceMessages
     /// </summary>
     public const string ReasonRequired = "A reason of at most 500 characters is required.";
     /// <summary>
+    ///     (EN) Maximum length of a cancel, adjust or amount-change reason.<br />
+    ///     (VI) Độ dài tối đa của lý do hủy, điều chỉnh hoặc đổi số tiền.
+    /// </summary>
+    public const int MaxReasonLength = 500;
+    /// <summary>
     ///     (EN) Success after the cancellation state, reason and processing time commit.<br />
     ///     (VI) Thành công sau khi trạng thái hủy, lý do và thời điểm xử lý commit.
     /// </summary>
@@ -333,4 +338,19 @@ public static class CoreFinanceMessages
     ///     (VI) Mã tài khoản được gửi là chuỗi rỗng thay vì bỏ qua.
     /// </summary>
     public const string AccountCodeNotEmpty = "Account code cannot be empty string / Mã tài khoản không được là chuỗi rỗng";
+    /// <summary>
+    ///     (EN) An account update type is missing, blank, numeric, comma-joined or not a defined account type name.<br />
+    ///     (VI) Loại tài khoản khi cập nhật bị thiếu, rỗng, là số, ghép dấu phẩy hoặc không phải tên loại tài khoản đã định nghĩa.
+    /// </summary>
+    public const string AccountTypeInvalid = "Account type must be a defined account type name / Loại tài khoản phải là tên loại tài khoản đã định nghĩa";
+    /// <summary>
+    ///     (EN) Maximum number of items accepted by one batch create call.<br />
+    ///     (VI) Số phần tử tối đa được nhận trong một lần tạo hàng loạt.
+    /// </summary>
+    public const int MaxBatchSize = 500;
+    /// <summary>
+    ///     (EN) A batch create call holds more items than the batch size limit; no item is validated or written.<br />
+    ///     (VI) Lần tạo hàng loạt có nhiều phần tử hơn giới hạn kích thước lô; không phần tử nào được kiểm tra hay ghi.
+    /// </summary>
+    public const string BatchSizeExceeded = "A batch must not exceed 500 items / Một lô không được vượt quá 500 phần tử";
 }

@@ -21,6 +21,5 @@ public class UpdateTransactionRequestValidator : AbstractValidator<TransactionUp
         RuleFor(x => x.RevenueAmount).GreaterThanOrEqualTo(0);
         RuleFor(x => x.SpentAmount).GreaterThanOrEqualTo(0);
         RuleFor(x => x.CategoryType).IsInEnum();
-        RuleFor(x => x.Balance).GreaterThanOrEqualTo(0);
     }
 }

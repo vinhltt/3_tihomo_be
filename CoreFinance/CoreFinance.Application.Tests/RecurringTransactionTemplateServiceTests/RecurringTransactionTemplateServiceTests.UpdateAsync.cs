@@ -1,7 +1,9 @@
+using System.Linq.Expressions;
 using CoreFinance.Application.DTOs.RecurringTransactionTemplate;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using FluentAssertions;
+using FluentValidation;
 using Moq;
 using Shared.Contracts.Exceptions;
 
@@ -171,5 +173,74 @@ public partial class RecurringTransactionTemplateServiceTests
         await act.Should().ThrowAsync<UpdateFailedException>();
         harness.Created.Should().BeEmpty();
         template.NextExecutionDate.Should().Be(Today);
+    }
+
+    /// <summary>
+    ///     (EN) An invalid edit is rejected before any transaction, lock, lookup or write, and leaves the template untouched.<br />
+    ///     (VI) Chỉnh sửa không hợp lệ bị từ chối trước mọi transaction, khóa, tra cứu hay ghi, và mẫu không bị đổi.
+    /// </summary>
+    [Theory]
+    [InlineData(0, null, null, nameof(RecurringTransactionTemplateUpdateRequest.Amount))]
+    [InlineData(null, 0, null, nameof(RecurringTransactionTemplateUpdateRequest.DaysInAdvance))]
+    [InlineData(null, null, 99, nameof(RecurringTransactionTemplateUpdateRequest.Frequency))]
+    public async Task UpdateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenRequestIsInvalid(
+        int? amount, int? daysInAdvance, int? frequency, string invalidProperty)
+    {
+        // Arrange
+        var template = NewTemplate(D(2026, 1, 1), daysInAdvance: 30);
+        var harness = new GenerationHarness { Template = template };
+        var request = new RecurringTransactionTemplateUpdateRequest
+        {
+            Id = template.Id,
+            Amount = amount,
+            DaysInAdvance = daysInAdvance,
+            Frequency = frequency.HasValue ? (RecurrenceFrequency)frequency.Value : null
+        };
+
+        // Act
+        var act = () => harness.Service().UpdateAsync(template.Id, request);
+
+        // Assert
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
+        AssertNothingStartedOrWritten(harness);
+        template.Amount.Should().Be(100m);
+        template.DaysInAdvance.Should().Be(30);
+        template.Frequency.Should().Be(RecurrenceFrequency.Monthly);
+    }
+
+    /// <summary>
+    ///     (EN) An empty-string name is an invalid edit at the service seam (only null means "keep the name").<br />
+    ///     (VI) Tên là chuỗi rỗng là chỉnh sửa không hợp lệ ở tầng service (chỉ null mới nghĩa là "giữ tên").
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_ShouldRejectEmptyName_WhenNameIsEmptyString()
+    {
+        // Arrange
+        var template = NewTemplate(D(2026, 1, 1));
+        var harness = new GenerationHarness { Template = template };
+        var request = new RecurringTransactionTemplateUpdateRequest { Id = template.Id, Name = "" };
+
+        // Act
+        var act = () => harness.Service().UpdateAsync(template.Id, request);
+
+        // Assert
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Should().Contain(error =>
+                error.PropertyName == nameof(RecurringTransactionTemplateUpdateRequest.Name));
+        AssertNothingStartedOrWritten(harness);
+        template.Name.Should().Be("Electricity");
+    }
+
+    private static void AssertNothingStartedOrWritten(GenerationHarness harness)
+    {
+        harness.UnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        harness.UnitOfWork.Verify(u => u.AcquireOwnerResourceLockAsync(It.IsAny<string>(), It.IsAny<Guid>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        harness.TemplateRepo.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(),
+            It.IsAny<Expression<Func<RecurringTransactionTemplate, object>>[]>()), Times.Never);
+        harness.TemplateRepo.Verify(r => r.UpdateAsync(It.IsAny<RecurringTransactionTemplate>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        harness.Created.Should().BeEmpty();
     }
 }

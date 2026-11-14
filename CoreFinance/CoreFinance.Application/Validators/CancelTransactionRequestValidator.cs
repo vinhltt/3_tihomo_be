@@ -1,4 +1,5 @@
 using CoreFinance.Application.DTOs.ExpectedTransaction;
+using CoreFinance.Domain.Constants;
 using FluentValidation;
 
 namespace CoreFinance.Application.Validators;
@@ -15,6 +16,8 @@ public class CancelTransactionRequestValidator : AbstractValidator<CancelTransac
     /// </summary>
     public CancelTransactionRequestValidator()
     {
-        RuleFor(x => x.Reason).NotEmpty().When(x => !string.IsNullOrEmpty(x.Reason)); // Validate if reason is provided
+        RuleFor(x => x.Reason)
+            .NotEmpty().WithMessage(CoreFinanceMessages.ReasonRequired).WithErrorCode(CoreFinanceErrorCodes.InvalidReason)
+            .MaximumLength(CoreFinanceMessages.MaxReasonLength).WithMessage(CoreFinanceMessages.ReasonRequired).WithErrorCode(CoreFinanceErrorCodes.InvalidReason);
     }
 }

@@ -2,8 +2,10 @@ using CoreFinance.Application.DTOs.Transaction;
 using CoreFinance.Application.Services;
 using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
+using CoreFinance.Domain.Enums;
 using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -32,6 +34,7 @@ public partial class TransactionServiceTests
             Id = transactionId,
             AccountId = Guid.CreateVersion7(),
             UserId = Guid.CreateVersion7(),
+            TransactionDate = new DateTime(2026, 3, 15),
             Description = "Updated Description",
             RevenueAmount = 200,
             SpentAmount = 50
@@ -48,7 +51,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(Mock.Of<IDbContextTransaction>());
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.UpdateAsync(transactionId, updateRequest);
@@ -75,6 +78,7 @@ public partial class TransactionServiceTests
             Id = transactionId,
             AccountId = Guid.CreateVersion7(),
             UserId = Guid.CreateVersion7(),
+            TransactionDate = new DateTime(2026, 3, 15),
             Description = "Updated Transaction",
             RevenueAmount = 200,
             SpentAmount = 50
@@ -98,7 +102,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
         // Act
         var result = await service.UpdateAsync(transactionId, updateRequest);
         // Assert
@@ -133,7 +137,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
         // Act
         Func<Task> act = async () => await service.UpdateAsync(transactionId, requestWithDifferentId);
         // Assert
@@ -153,13 +157,16 @@ public partial class TransactionServiceTests
     {
         // Arrange
         var transactionId = Guid.CreateVersion7();
-        var updateRequest = new TransactionUpdateRequest { Id = transactionId };
+        var updateRequest = new TransactionUpdateRequest
+        {
+            Id = transactionId, AccountId = Guid.CreateVersion7(), TransactionDate = new DateTime(2026, 3, 15)
+        };
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetByIdAsync(transactionId)).ReturnsAsync((Transaction?)null);
         var unitOfWorkMock = new Mock<IUnitOfWork>();
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
         // Act
         Func<Task> act = async () => await service.UpdateAsync(transactionId, updateRequest);
         // Assert
@@ -179,7 +186,11 @@ public partial class TransactionServiceTests
     {
         // Arrange
         var transactionId = Guid.CreateVersion7();
-        var updateRequest = new TransactionUpdateRequest { Id = transactionId, Description = "Fail Update" };
+        var updateRequest = new TransactionUpdateRequest
+        {
+            Id = transactionId, AccountId = Guid.CreateVersion7(), TransactionDate = new DateTime(2026, 3, 15),
+            Description = "Fail Update"
+        };
         var existingTransaction = new Transaction { Id = transactionId };
         var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
         repoMock.Setup(r => r.GetByIdAsync(transactionId)).ReturnsAsync(existingTransaction);
@@ -194,7 +205,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
         // Act
         Func<Task> act = async () => await service.UpdateAsync(transactionId, updateRequest);
         // Assert
@@ -206,5 +217,46 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Once);
         transactionMock.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
         transactionMock.Verify(t => t.DisposeAsync(), Times.Once);
+    }
+
+    /// <summary>
+    ///     Verifies that UpdateAsync rejects an invalid request before opening a transaction, reading the entity or
+    ///     writing to the repository. (EN)<br />
+    ///     Xác minh rằng UpdateAsync từ chối yêu cầu không hợp lệ trước khi mở giao dịch, đọc thực thể hoặc ghi vào
+    ///     repository. (VI)
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, 0, 0, nameof(TransactionUpdateRequest.AccountId))]
+    [InlineData(false, true, 0, 0, nameof(TransactionUpdateRequest.TransactionDate))]
+    [InlineData(false, false, -1, 0, nameof(TransactionUpdateRequest.SpentAmount))]
+    [InlineData(false, false, 0, 99, nameof(TransactionUpdateRequest.CategoryType))]
+    public async Task UpdateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenRequestIsInvalid(
+        bool emptyAccount, bool emptyDate, int spentAmount, int categoryType, string invalidProperty)
+    {
+        // Arrange
+        var transactionId = Guid.CreateVersion7();
+        var updateRequest = new TransactionUpdateRequest
+        {
+            Id = transactionId,
+            AccountId = emptyAccount ? Guid.Empty : Guid.CreateVersion7(),
+            TransactionDate = emptyDate ? default : new DateTime(2026, 3, 15),
+            SpentAmount = spentAmount,
+            CategoryType = (CategoryType)categoryType
+        };
+        var repoMock = new Mock<IBaseRepository<Transaction, Guid>>();
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
+        var loggerMock = new Mock<ILogger<TransactionService>>();
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+
+        // Act
+        Func<Task> act = async () => await service.UpdateAsync(transactionId, updateRequest);
+
+        // Assert
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
+        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
+        repoMock.Verify(r => r.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
+        repoMock.Verify(r => r.UpdateAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

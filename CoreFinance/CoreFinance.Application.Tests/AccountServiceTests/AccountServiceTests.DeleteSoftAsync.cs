@@ -33,7 +33,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.DeleteSoftAsync(accountId);
@@ -65,7 +65,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.DeleteSoftAsync(accountId);
@@ -97,7 +97,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.DeleteSoftAsync(accountId);
@@ -130,7 +130,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.DeleteHardAsync(accountId);
@@ -162,7 +162,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.DeleteSoftAsync(accountId);

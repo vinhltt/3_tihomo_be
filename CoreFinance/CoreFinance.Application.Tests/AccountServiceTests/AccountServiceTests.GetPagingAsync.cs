@@ -49,7 +49,7 @@ public partial class AccountServiceTests
 
         var loggerMock = new Mock<ILogger<AccountService>>();
 
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -101,7 +101,7 @@ public partial class AccountServiceTests
 
         var loggerMock = new Mock<ILogger<AccountService>>();
 
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -143,7 +143,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -185,7 +185,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -221,7 +221,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -265,7 +265,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {

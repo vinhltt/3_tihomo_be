@@ -1,7 +1,9 @@
 using CoreFinance.Application.DTOs.Account;
 using CoreFinance.Application.Validators;
+using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Enums;
 using FluentAssertions;
+using FluentValidation.TestHelper;
 
 namespace CoreFinance.Application.Tests.Validators;
 
@@ -273,8 +275,7 @@ public class CreateAccountRequestValidatorTests
             Name = "", // Invalid
             Code = "Invalid-Code", // Invalid
             Currency = "", // Invalid
-            Type = AccountType.DebitCard,
-            InitialBalance = -100 // Invalid
+            Type = (AccountType)99 // Invalid - not a defined enum value
         };
 
         // Act
@@ -285,7 +286,172 @@ public class CreateAccountRequestValidatorTests
         result.Errors.Should().Contain(e => e.PropertyName == "Name", "Name should have error");
         result.Errors.Should().Contain(e => e.PropertyName == "Code", "Code should have error");
         result.Errors.Should().Contain(e => e.PropertyName == "Currency", "Currency should have error");
-        result.Errors.Should().Contain(e => e.PropertyName == "InitialBalance", "InitialBalance should have error");
+        result.Errors.Should().Contain(e => e.PropertyName == "Type", "Type should have error");
+    }
+
+    #endregion
+
+    #region Field Rules
+
+    /// <summary>
+    /// A negative initial balance is a valid payload (EN)<br />
+    /// Số dư ban đầu âm là payload hợp lệ (VI)
+    /// </summary>
+    [Theory]
+    [InlineData(-100)]
+    [InlineData(0)]
+    [InlineData(100)]
+    public void Validator_Should_Accept_Any_InitialBalance_Including_Negative(decimal initialBalance)
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        request.InitialBalance = initialBalance;
+
+        // Act
+        var result = _validator.TestValidate(request);
+
+        // Assert
+        result.ShouldNotHaveValidationErrorFor(x => x.InitialBalance);
+        result.IsValid.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Type Bank (enum value 0) is a valid account type (EN)<br />
+    /// Type Bank (giá trị enum 0) là loại tài khoản hợp lệ (VI)
+    /// </summary>
+    [Fact]
+    public void Validator_Should_Accept_Bank_Type()
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        request.Type = AccountType.Bank;
+
+        // Act
+        var result = _validator.TestValidate(request);
+
+        // Assert
+        result.ShouldNotHaveValidationErrorFor(x => x.Type);
+    }
+
+    /// <summary>
+    /// Every defined account type is accepted (EN)<br />
+    /// Mọi loại tài khoản đã định nghĩa đều được chấp nhận (VI)
+    /// </summary>
+    [Theory]
+    [InlineData(AccountType.Bank)]
+    [InlineData(AccountType.Wallet)]
+    [InlineData(AccountType.CreditCard)]
+    [InlineData(AccountType.DebitCard)]
+    [InlineData(AccountType.Cash)]
+    public void Validator_Should_Accept_Every_Defined_Type(AccountType type)
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        request.Type = type;
+
+        // Act
+        var result = _validator.TestValidate(request);
+
+        // Assert
+        result.ShouldNotHaveValidationErrorFor(x => x.Type);
+    }
+
+    /// <summary>
+    /// An undefined numeric account type is rejected (EN)<br />
+    /// Loại tài khoản dạng số không được định nghĩa bị từ chối (VI)
+    /// </summary>
+    [Theory]
+    [InlineData(99)]
+    [InlineData(-1)]
+    public void Validator_Should_Reject_Undefined_Type(int type)
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        request.Type = (AccountType)type;
+
+        // Act
+        var result = _validator.TestValidate(request);
+
+        // Assert
+        result.ShouldHaveValidationErrorFor(x => x.Type);
+    }
+
+    /// <summary>
+    /// Name and Currency accept values at their length limits and reject values one character over (EN)<br />
+    /// Name và Currency chấp nhận giá trị đúng giới hạn độ dài và từ chối giá trị vượt một ký tự (VI)
+    /// </summary>
+    [Fact]
+    public void Validator_Should_Enforce_Name_And_Currency_Length_Limits()
+    {
+        // Arrange
+        var atLimit = CreateValidRequest();
+        atLimit.Name = new string('n', 100);
+        atLimit.Currency = new string('c', 10);
+        var overLimit = CreateValidRequest();
+        overLimit.Name = new string('n', 101);
+        overLimit.Currency = new string('c', 11);
+
+        // Act
+        var okResult = _validator.TestValidate(atLimit);
+        var badResult = _validator.TestValidate(overLimit);
+
+        // Assert
+        okResult.ShouldNotHaveValidationErrorFor(x => x.Name);
+        okResult.ShouldNotHaveValidationErrorFor(x => x.Currency);
+        badResult.ShouldHaveValidationErrorFor(x => x.Name);
+        badResult.ShouldHaveValidationErrorFor(x => x.Currency);
+    }
+
+    /// <summary>
+    /// Frontend-shaped payload (Type Bank, negative InitialBalance) passes (EN)<br />
+    /// Payload dạng frontend (Type Bank, InitialBalance âm) hợp lệ (VI)
+    /// </summary>
+    [Fact]
+    public void Validator_Should_Accept_Frontend_Shaped_Payload()
+    {
+        // Arrange
+        var request = new AccountCreateRequest
+        {
+            Name = "Techcombank",
+            Type = AccountType.Bank,
+            Currency = "VND",
+            InitialBalance = -100
+        };
+
+        // Act
+        var result = _validator.TestValidate(request);
+
+        // Assert
+        result.ShouldNotHaveAnyValidationErrors();
+    }
+
+    /// <summary>
+    /// Custom account code messages keep their exact text (EN)<br />
+    /// Message tùy biến của mã tài khoản giữ nguyên chữ (VI)
+    /// </summary>
+    [Fact]
+    public void Validator_Should_Report_Exact_Account_Code_Messages()
+    {
+        // Arrange
+        var tooLong = CreateValidRequest();
+        tooLong.Code = new string('a', 51);
+        var badFormat = CreateValidRequest();
+        badFormat.Code = "Invalid-Code";
+        var empty = CreateValidRequest();
+        empty.Code = "";
+
+        // Act
+        var tooLongResult = _validator.TestValidate(tooLong);
+        var badFormatResult = _validator.TestValidate(badFormat);
+        var emptyResult = _validator.TestValidate(empty);
+
+        // Assert
+        tooLongResult.ShouldHaveValidationErrorFor(x => x.Code)
+            .WithErrorMessage(CoreFinanceMessages.AccountCodeMaxLength);
+        badFormatResult.ShouldHaveValidationErrorFor(x => x.Code)
+            .WithErrorMessage(CoreFinanceMessages.AccountCodeSnakeCase);
+        emptyResult.ShouldHaveValidationErrorFor(x => x.Code)
+            .WithErrorMessage(CoreFinanceMessages.AccountCodeNotEmpty);
     }
 
     #endregion

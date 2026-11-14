@@ -22,7 +22,7 @@ public partial class TransactionServiceTests
         repoMock.Setup(r => r.GetNoTrackingEntities()).Returns(mock);
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
-        return new TransactionService(TestHelpers.CreateMapper(), uow.Object, new Mock<ILogger<TransactionService>>().Object);
+        return CreateService(TestHelpers.CreateMapper(), uow.Object, new Mock<ILogger<TransactionService>>().Object);
     }
 
     private static Transaction Make(string n) => new Transaction { Id = Guid.CreateVersion7(), Description = n };
