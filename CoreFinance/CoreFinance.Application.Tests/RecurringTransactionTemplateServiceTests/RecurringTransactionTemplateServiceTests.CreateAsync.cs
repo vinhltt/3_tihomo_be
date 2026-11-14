@@ -131,30 +131,98 @@ public partial class RecurringTransactionTemplateServiceTests
     }
 
     /// <summary>
-    ///     (EN) An invalid request is rejected before any transaction, lock, account lookup or write.<br />
-    ///     (VI) Yêu cầu không hợp lệ bị từ chối trước mọi transaction, khóa, tra cứu tài khoản hay ghi.
+    ///     (EN) A blank name is rejected before any transaction, lock, account lookup or write.<br />
+    ///     (VI) Tên trống bị từ chối trước mọi transaction, khóa, tra cứu tài khoản hay ghi.
     /// </summary>
     [Theory]
-    [InlineData("", 300, 30, 0, nameof(RecurringTransactionTemplateCreateRequest.Name))]
-    [InlineData(null, 300, 30, 0, nameof(RecurringTransactionTemplateCreateRequest.Name))]
-    [InlineData("Internet", 0, 30, 0, nameof(RecurringTransactionTemplateCreateRequest.Amount))]
-    [InlineData("Internet", 300, 0, 0, nameof(RecurringTransactionTemplateCreateRequest.DaysInAdvance))]
-    [InlineData("Internet", 300, 30, 99, nameof(RecurringTransactionTemplateCreateRequest.Frequency))]
-    public async Task CreateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenRequestIsInvalid(
-        string? name, int amount, int daysInAdvance, int frequency, string invalidProperty)
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task CreateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenNameIsBlank(string? name)
     {
         // Arrange
-        var harness = new GenerationHarness();
         var request = NewCreateRequest();
         request.Name = name;
-        request.Amount = amount;
-        request.DaysInAdvance = daysInAdvance;
-        request.Frequency = (RecurrenceFrequency)frequency;
 
-        // Act
+        // Act and Assert
+        await AssertRejectedWithoutWritingAsync(request, nameof(RecurringTransactionTemplateCreateRequest.Name));
+    }
+
+    /// <summary>
+    ///     (EN) An out-of-range amount, frequency, type, custom interval or advance window is rejected before any
+    ///     transaction, lock, account lookup or write; only the named rule is broken in each case.<br />
+    ///     (VI) Số tiền, tần suất, loại, chu kỳ tùy chỉnh hoặc số ngày sinh trước nằm ngoài miền hợp lệ bị từ chối
+    ///     trước mọi transaction, khóa, tra cứu tài khoản hay ghi; mỗi trường hợp chỉ vi phạm đúng một rule.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(RecurringTransactionTemplateCreateRequest.Amount), 0)]
+    [InlineData(nameof(RecurringTransactionTemplateCreateRequest.DaysInAdvance), 0)]
+    [InlineData(nameof(RecurringTransactionTemplateCreateRequest.DaysInAdvance), 366)]
+    [InlineData(nameof(RecurringTransactionTemplateCreateRequest.Frequency), 99)]
+    [InlineData(nameof(RecurringTransactionTemplateCreateRequest.TransactionType), 99)]
+    [InlineData(nameof(RecurringTransactionTemplateCreateRequest.CustomIntervalDays), 0)]
+    [InlineData(nameof(RecurringTransactionTemplateCreateRequest.CustomIntervalDays), -1)]
+    public async Task CreateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenNumericFieldIsOutOfRange(
+        string invalidProperty, int value)
+    {
+        // Arrange
+        var request = NewCreateRequest();
+        switch (invalidProperty)
+        {
+            case nameof(RecurringTransactionTemplateCreateRequest.Amount): request.Amount = value; break;
+            case nameof(RecurringTransactionTemplateCreateRequest.DaysInAdvance): request.DaysInAdvance = value; break;
+            case nameof(RecurringTransactionTemplateCreateRequest.Frequency):
+                request.Frequency = (RecurrenceFrequency)value;
+                break;
+            case nameof(RecurringTransactionTemplateCreateRequest.TransactionType):
+                request.TransactionType = (RecurringTransactionType)value;
+                break;
+            case nameof(RecurringTransactionTemplateCreateRequest.CustomIntervalDays):
+                request.CustomIntervalDays = value;
+                break;
+            default: throw new ArgumentOutOfRangeException(nameof(invalidProperty), invalidProperty, null);
+        }
+
+        // Act and Assert
+        await AssertRejectedWithoutWritingAsync(request, invalidProperty);
+    }
+
+    /// <summary>
+    ///     (EN) An empty account ID is rejected before any transaction, lock, account lookup or write.<br />
+    ///     (VI) ID tài khoản rỗng bị từ chối trước mọi transaction, khóa, tra cứu tài khoản hay ghi.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenAccountIdIsEmpty()
+    {
+        // Arrange
+        var request = NewCreateRequest();
+        request.AccountId = Guid.Empty;
+
+        // Act and Assert
+        await AssertRejectedWithoutWritingAsync(request, nameof(RecurringTransactionTemplateCreateRequest.AccountId));
+    }
+
+    /// <summary>
+    ///     (EN) An unset start date is rejected before any transaction, lock, account lookup or write.<br />
+    ///     (VI) Ngày bắt đầu chưa đặt bị từ chối trước mọi transaction, khóa, tra cứu tài khoản hay ghi.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenStartDateIsUnset()
+    {
+        // Arrange
+        var request = NewCreateRequest();
+        request.StartDate = default;
+
+        // Act and Assert
+        await AssertRejectedWithoutWritingAsync(request, nameof(RecurringTransactionTemplateCreateRequest.StartDate));
+    }
+
+    private static async Task AssertRejectedWithoutWritingAsync(RecurringTransactionTemplateCreateRequest request,
+        string invalidProperty)
+    {
+        var harness = new GenerationHarness();
+
         var act = () => harness.Service().CreateAsync(request);
 
-        // Assert
         (await act.Should().ThrowAsync<ValidationException>())
             .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
         harness.UnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);

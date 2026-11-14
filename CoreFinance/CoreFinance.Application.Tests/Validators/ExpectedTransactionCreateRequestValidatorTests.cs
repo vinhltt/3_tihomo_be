@@ -171,29 +171,65 @@ public class ExpectedTransactionCreateRequestValidatorTests
     }
 
     /// <summary>
-    /// Description, Category and Notes enforce 500, 100 and 1000 character limits (EN)<br />
-    /// Description, Category và Notes giới hạn 500, 100 và 1000 ký tự (VI)
+    /// Description accepts 500 characters and rejects 501 (EN)<br />
+    /// Description chấp nhận 500 ký tự và từ chối 501 (VI)
     /// </summary>
     [Theory]
-    [InlineData(500, 100, 1000, true)]
-    [InlineData(501, 100, 1000, false)]
-    [InlineData(500, 101, 1000, false)]
-    [InlineData(500, 100, 1001, false)]
-    public void Validator_Should_Enforce_Text_Length_Limits(int description, int category, int notes, bool valid)
+    [InlineData(500, true)]
+    [InlineData(501, false)]
+    public void Validator_Should_Enforce_Description_Length_Limit(int length, bool valid)
     {
         // Arrange
         var request = CreateValidRequest();
-        request.Description = new string('d', description);
-        request.Category = new string('c', category);
-        request.Notes = new string('n', notes);
+        request.Description = new string('d', length);
 
         // Act
         var result = _validator.TestValidate(request);
 
         // Assert
         result.IsValid.Should().Be(valid);
-        if (description > 500) result.ShouldHaveValidationErrorFor(x => x.Description);
-        if (category > 100) result.ShouldHaveValidationErrorFor(x => x.Category);
-        if (notes > 1000) result.ShouldHaveValidationErrorFor(x => x.Notes);
+        result.Errors.Select(error => error.PropertyName).Contains(nameof(request.Description)).Should().Be(!valid);
+    }
+
+    /// <summary>
+    /// Category accepts 100 characters and rejects 101 (EN)<br />
+    /// Category chấp nhận 100 ký tự và từ chối 101 (VI)
+    /// </summary>
+    [Theory]
+    [InlineData(100, true)]
+    [InlineData(101, false)]
+    public void Validator_Should_Enforce_Category_Length_Limit(int length, bool valid)
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        request.Category = new string('c', length);
+
+        // Act
+        var result = _validator.TestValidate(request);
+
+        // Assert
+        result.IsValid.Should().Be(valid);
+        result.Errors.Select(error => error.PropertyName).Contains(nameof(request.Category)).Should().Be(!valid);
+    }
+
+    /// <summary>
+    /// Notes accepts 1000 characters and rejects 1001 (EN)<br />
+    /// Notes chấp nhận 1000 ký tự và từ chối 1001 (VI)
+    /// </summary>
+    [Theory]
+    [InlineData(1000, true)]
+    [InlineData(1001, false)]
+    public void Validator_Should_Enforce_Notes_Length_Limit(int length, bool valid)
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        request.Notes = new string('n', length);
+
+        // Act
+        var result = _validator.TestValidate(request);
+
+        // Assert
+        result.IsValid.Should().Be(valid);
+        result.Errors.Select(error => error.PropertyName).Contains(nameof(request.Notes)).Should().Be(!valid);
     }
 }

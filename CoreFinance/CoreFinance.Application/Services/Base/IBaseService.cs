@@ -85,5 +85,16 @@ public interface IBaseService<TEntity, TCreateRequest, in TUpdateRequest, TViewM
     ///     A task that represents the asynchronous operation. The task result contains the collection of created view
     ///     models, or an empty collection if the creation failed.
     /// </returns>
+    /// <exception cref="FluentValidation.ValidationException">
+    ///     (EN) Thrown once, before any write, when the batch exceeds
+    ///     <see cref="CoreFinance.Domain.Constants.CoreFinanceMessages.MaxBatchSize" /> items (a single limit error) or any
+    ///     item fails validation; the exception carries the errors of every invalid item, keyed by item index
+    ///     (<c>x[i].Field</c>), in item order. One invalid item rejects the whole batch. An empty list returns an empty
+    ///     collection without validation.<br />
+    ///     (VI) Ném một lần, trước mọi thao tác ghi, khi lô vượt
+    ///     <see cref="CoreFinance.Domain.Constants.CoreFinanceMessages.MaxBatchSize" /> phần tử (chỉ một lỗi giới hạn) hoặc
+    ///     có phần tử không hợp lệ; ngoại lệ chứa lỗi của mọi phần tử sai, key theo chỉ số phần tử (<c>x[i].Field</c>),
+    ///     theo thứ tự phần tử. Một phần tử sai thì từ chối cả lô. Danh sách rỗng trả tập rỗng, không kiểm tra.
+    /// </exception>
     Task<IEnumerable<TViewModel>?> CreateAsync(List<TCreateRequest> request);
 }

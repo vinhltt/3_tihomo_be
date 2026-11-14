@@ -6,7 +6,6 @@ using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using CoreFinance.Domain.UnitOfWorks;
 using FluentAssertions;
-using FluentValidation;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -222,9 +221,11 @@ public partial class AccountServiceTests
     [Theory]
     [InlineData("", "Bank", "USD", nameof(AccountUpdateRequest.Name))]
     [InlineData("Wallet", "NotAnAccountType", "USD", nameof(AccountUpdateRequest.Type))]
+    [InlineData("Wallet", null, "USD", nameof(AccountUpdateRequest.Type))]
+    [InlineData("Wallet", "", "USD", nameof(AccountUpdateRequest.Type))]
     [InlineData("Wallet", "Bank", "", nameof(AccountUpdateRequest.Currency))]
     public async Task UpdateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenRequestIsInvalid(
-        string name, string type, string currency, string invalidProperty)
+        string name, string? type, string currency, string invalidProperty)
     {
         // Arrange
         var accountId = Guid.CreateVersion7();

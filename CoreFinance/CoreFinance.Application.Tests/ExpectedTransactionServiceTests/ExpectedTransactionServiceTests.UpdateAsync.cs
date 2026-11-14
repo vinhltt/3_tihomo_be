@@ -1,5 +1,5 @@
+using System.Globalization;
 using CoreFinance.Application.DTOs.ExpectedTransaction;
-using CoreFinance.Application.Validators;
 using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
@@ -638,9 +638,6 @@ public partial class ExpectedTransactionServiceTests
         fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private static string FirstUpdateValidatorMessage(ExpectedTransactionUpdateRequest request) =>
-        new ExpectedTransactionUpdateRequestValidator().Validate(request).Errors[0].ErrorMessage;
-
     private static void VerifyNoExpectedWrite(ServiceFixture fixture)
     {
         fixture.ExpectedRepository.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
@@ -652,13 +649,14 @@ public partial class ExpectedTransactionServiceTests
     ///     (EN) Characterization: an invalid update request reports the first validator failure and writes nothing.<br />
     ///     (VI) Đặc tả hiện trạng: request cập nhật sai trả lỗi validator đầu tiên và không ghi gì.
     /// </summary>
+    // The default-message literals below were captured under en-US from FluentValidation 12.0.0.
     [Theory]
-    [InlineData("zeroAmount", "ExpectedAmount")]
-    [InlineData("overlongReason", "AdjustmentReason")]
-    [InlineData("overlongDescription", "Description")]
-    [InlineData("undefinedStatus", "Status")]
+    [InlineData("zeroAmount", "ExpectedAmount", "'Expected Amount' must be greater than '0'.")]
+    [InlineData("overlongReason", "AdjustmentReason", "The length of 'Adjustment Reason' must be 500 characters or fewer. You entered 501 characters.")]
+    [InlineData("overlongDescription", "Description", "The length of 'Description' must be 500 characters or fewer. You entered 501 characters.")]
+    [InlineData("undefinedStatus", "Status", "'Status' has a range of values which does not include '99'.")]
     public async Task UpdateAsync_ShouldReportFirstValidatorMessageWithoutWriting_WhenRequestIsInvalid(
-        string kind, string propertyName)
+        string kind, string propertyName, string message)
     {
         // Arrange
         var expected = Expected(1);
@@ -670,15 +668,27 @@ public partial class ExpectedTransactionServiceTests
             case "overlongReason": request.ExpectedAmount = 120m; request.AdjustmentReason = new string('r', 501); break;
             case "overlongDescription": request.Description = new string('d', 501); break;
             case "undefinedStatus": request.Status = (ExpectedTransactionStatus)99; break;
+            default: throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
         }
 
-        // Act
-        Func<Task> act = () => fixture.Service.UpdateAsync(expected.Id, request);
+        var previousCulture = CultureInfo.CurrentUICulture;
+        CultureInfo.CurrentUICulture = new CultureInfo("en-US");
 
-        // Assert
-        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
-        failure.Errors.First().PropertyName.Should().Be(propertyName);
-        failure.Errors.First().ErrorMessage.Should().Be(FirstUpdateValidatorMessage(request));
+        try
+        {
+            // Act
+            Func<Task> act = () => fixture.Service.UpdateAsync(expected.Id, request);
+
+            // Assert
+            var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+            failure.Errors.First().PropertyName.Should().Be(propertyName);
+            failure.Errors.First().ErrorMessage.Should().Be(message);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = previousCulture;
+        }
+
         VerifyNoExpectedWrite(fixture);
         expected.ExpectedAmount.Should().Be(100m);
     }

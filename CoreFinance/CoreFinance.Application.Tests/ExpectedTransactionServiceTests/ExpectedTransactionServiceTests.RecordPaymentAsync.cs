@@ -378,16 +378,20 @@ public partial class ExpectedTransactionServiceTests
     }
 
     /// <summary>
-    ///     (EN) A null request or an explicitly empty account ID on an otherwise payable pending period writes nothing and leaves it pending.<br />
-    ///     (VI) Request null hoặc ID tài khoản rỗng trên kỳ chờ có thể thanh toán không ghi gì và giữ kỳ ở trạng thái chờ.
+    ///     (EN) A null request or an explicitly empty account ID, with or without a bound account, reports the invalid-request code and message, writes nothing and leaves the period pending.<br />
+    ///     (VI) Request null hoặc ID tài khoản rỗng, dù kỳ có gắn tài khoản hay không, trả mã và message invalid_request, không ghi gì và giữ kỳ ở trạng thái chờ.
     /// </summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RecordPaymentAsync_ShouldNotWriteAnything_WhenRequestIsNullOrAccountIdIsEmpty(bool nullRequest)
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task RecordPaymentAsync_ShouldNotWriteAnything_WhenRequestIsNullOrAccountIdIsEmpty(
+        bool bound, bool nullRequest)
     {
         // Arrange
         var expected = Expected(1);
+        if (!bound) expected.AccountId = null;
         var fixture = CreateFixture(expected);
         var request = nullRequest ? null : new RecordPaymentRequest { AccountId = Guid.Empty };
 
@@ -658,33 +662,6 @@ public partial class ExpectedTransactionServiceTests
     }
 
     /// <summary>
-    ///     (EN) Characterization: a null request or an explicit empty account ID reports the invalid-request code and payment-request message.<br />
-    ///     (VI) Đặc tả hiện trạng: request null hoặc ID tài khoản rỗng được truyền rõ ràng trả mã invalid_request và message yêu cầu thanh toán hợp lệ.
-    /// </summary>
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task RecordPaymentAsync_ShouldReturnInvalidRequestCodeAndMessage_WhenRequestIsNullOrAccountIdIsEmpty(
-        bool bound, bool nullRequest)
-    {
-        // Arrange
-        var expected = Expected(1);
-        if (!bound) expected.AccountId = null;
-        var fixture = CreateFixture(expected);
-        var request = nullRequest ? null : new RecordPaymentRequest { AccountId = Guid.Empty };
-
-        // Act
-        var result = await fixture.Service.RecordPaymentAsync(expected.Id, request!);
-
-        // Assert
-        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
-            CoreFinanceErrorCodes.InvalidRequest, CoreFinanceMessages.ValidPaymentRequestRequired);
-        fixture.CreatedActualTransactions.Should().BeEmpty();
-    }
-
-    /// <summary>
     ///     (EN) Characterization: a transfer period reports the unsupported-type code and message.<br />
     ///     (VI) Đặc tả hiện trạng: kỳ chuyển khoản trả mã và message loại giao dịch không được hỗ trợ.
     /// </summary>
@@ -870,7 +847,7 @@ public partial class ExpectedTransactionServiceTests
         // Assert
         AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.PersistenceError,
             CoreFinanceErrorCodes.PersistenceError, CoreFinanceMessages.OperationCouldNotBeSaved);
-        fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.AtLeastOnce);
+        fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     /// <summary>
@@ -938,12 +915,7 @@ public partial class ExpectedTransactionServiceTests
         // Assert
         AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
             CoreFinanceErrorCodes.InvalidRequest, CoreFinanceMessages.InvalidValues);
-        expected.Status.Should().Be(ExpectedTransactionStatus.Pending);
-        expected.ActualTransactionId.Should().BeNull();
-        expected.ProcessedAt.Should().BeNull();
-        fixture.CreatedActualTransactions.Should().BeEmpty();
-        fixture.ActualRepository.Verify(r => r.CreateAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-        fixture.ActualRepository.Verify(r => r.CreateAsync(It.IsAny<Transaction>()), Times.Never);
+        AssertNothingWritten(fixture);
+        AssertPeriodUnchanged(expected);
     }
 }

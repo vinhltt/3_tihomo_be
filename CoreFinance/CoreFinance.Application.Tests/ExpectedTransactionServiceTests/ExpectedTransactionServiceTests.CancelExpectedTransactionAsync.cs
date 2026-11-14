@@ -187,41 +187,13 @@ public partial class ExpectedTransactionServiceTests
     }
 
     /// <summary>
-    ///     (EN) Characterization: null, empty, whitespace and 501-character reasons report the invalid-reason code and message.<br />
-    ///     (VI) Đặc tả hiện trạng: lý do null, rỗng, khoảng trắng và 501 ký tự trả mã và message invalid_reason.
+    ///     (EN) A null, empty, whitespace or 501-character cancellation reason on an otherwise cancellable pending period reports the invalid-reason code and message, writes nothing and leaves it pending.<br />
+    ///     (VI) Lý do hủy null, rỗng, khoảng trắng hoặc 501 ký tự trên kỳ chờ có thể hủy trả mã và message invalid_reason, không ghi gì và giữ kỳ ở trạng thái chờ.
     /// </summary>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData(" \t ")]
-    [InlineData("501")]
-    public async Task CancelExpectedTransactionAsync_ShouldReturnInvalidReasonCodeAndMessage_WhenReasonIsInvalid(
-        string? reason)
-    {
-        // Arrange
-        var expected = Expected(1);
-        var fixture = CreateFixture(expected);
-        var input = reason == "501" ? new string('r', 501) : reason;
-
-        // Act
-        var result = await fixture.Service.CancelExpectedTransactionAsync(expected.Id, input!);
-
-        // Assert
-        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
-            CoreFinanceErrorCodes.InvalidReason, CoreFinanceMessages.ReasonRequired);
-        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
-        fixture.ExpectedRepository.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
-            It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    /// <summary>
-    ///     (EN) An invalid cancellation reason on an otherwise cancellable pending period writes nothing and leaves it pending.<br />
-    ///     (VI) Lý do hủy không hợp lệ trên kỳ chờ có thể hủy không ghi gì và giữ kỳ ở trạng thái chờ.
-    /// </summary>
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
     [InlineData(" \t ")]
     [InlineData("501")]
     public async Task CancelExpectedTransactionAsync_ShouldNotWriteAnything_WhenReasonIsInvalid(string? reason)

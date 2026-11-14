@@ -55,8 +55,7 @@ public class CancelTransactionRequestValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.Reason)
             .WithErrorCode(CoreFinanceErrorCodes.InvalidReason)
             .WithErrorMessage(CoreFinanceMessages.ReasonRequired);
-        result.Errors[0].ErrorCode.Should().Be(CoreFinanceErrorCodes.InvalidReason);
-        result.Errors[0].ErrorMessage.Should().Be(CoreFinanceMessages.ReasonRequired);
+        result.Errors.Should().ContainSingle();
     }
 
     /// <summary>
@@ -76,7 +75,6 @@ public class CancelTransactionRequestValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.Reason)
             .WithErrorCode(CoreFinanceErrorCodes.InvalidReason)
             .WithErrorMessage(CoreFinanceMessages.ReasonRequired);
-        result.Errors[0].ErrorCode.Should().Be(CoreFinanceErrorCodes.InvalidReason);
-        result.Errors[0].ErrorMessage.Should().Be(CoreFinanceMessages.ReasonRequired);
+        result.Errors.Should().ContainSingle();
     }
 }

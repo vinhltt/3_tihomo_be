@@ -102,8 +102,8 @@ public class RecurringTransactionTemplateCreateRequestValidatorTests
     }
 
     /// <summary>
-    /// Name follows the 200 character storage limit, not the former 100 (EN)<br />
-    /// Name theo giới hạn lưu trữ 200 ký tự, không còn là 100 (VI)
+    /// Name accepts up to 200 characters and rejects 201 (EN)<br />
+    /// Name chấp nhận tối đa 200 ký tự và từ chối 201 (VI)
     /// </summary>
     [Theory]
     [InlineData(100, true)]
@@ -164,14 +164,15 @@ public class RecurringTransactionTemplateCreateRequestValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.StartDate);
     }
 
+    public static IEnumerable<object[]> DefinedFrequencies =>
+        Enum.GetValues<RecurrenceFrequency>().Select(frequency => new object[] { frequency });
+
     /// <summary>
     /// Frequency accepts every defined value, including Custom (value 0) (EN)<br />
     /// Frequency chấp nhận mọi giá trị đã định nghĩa, kể cả Custom (giá trị 0) (VI)
     /// </summary>
     [Theory]
-    [InlineData(RecurrenceFrequency.Custom)]
-    [InlineData(RecurrenceFrequency.Daily)]
-    [InlineData(RecurrenceFrequency.Monthly)]
+    [MemberData(nameof(DefinedFrequencies))]
     public void Validator_Should_Accept_Defined_Frequency(RecurrenceFrequency frequency)
     {
         // Arrange

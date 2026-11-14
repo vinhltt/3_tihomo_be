@@ -19,28 +19,17 @@ public class UpdateAccountRequestValidator : AbstractValidator<AccountUpdateRequ
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Type)
+            .Cascade(CascadeMode.Stop)
             .NotEmpty()
-            .Must(type => Enum.TryParse<AccountType>(type, true, out var accountType) && Enum.IsDefined(accountType));
+            .WithMessage(CoreFinanceMessages.AccountTypeInvalid)
+            .Must(type => IsDefinedAccountTypeName(type!))
+            .WithMessage(CoreFinanceMessages.AccountTypeInvalid);
         RuleFor(x => x.Currency).NotEmpty().MaximumLength(10);
-
-        // Code validation rules - only apply when Code is provided
-        // Quy tắc xác thực Code - chỉ áp dụng khi Code được cung cấp
-        When(x => !string.IsNullOrWhiteSpace(x.Code), () =>
-        {
-            RuleFor(x => x.Code)
-                .MaximumLength(50)
-                .WithMessage(CoreFinanceMessages.AccountCodeMaxLength);
-
-            RuleFor(x => x.Code)
-                .Matches(@"^[a-z0-9_]+$")
-                .WithMessage(CoreFinanceMessages.AccountCodeSnakeCase);
-        });
-
-        // Reject empty string explicitly (null is OK, empty string is not)
-        // Từ chối chuỗi rỗng một cách rõ ràng (null được chấp nhận, chuỗi rỗng thì không)
-        RuleFor(x => x.Code)
-            .NotEmpty()
-            .When(x => x.Code != null)
-            .WithMessage(CoreFinanceMessages.AccountCodeNotEmpty);
+        this.RuleForAccountCode(x => x.Code);
     }
+
+    // Accepts only enum names, never numeric or comma-joined values. Surrounding whitespace is trimmed because the
+    // AutoMapper string-to-enum mapping trims it too, so every accepted value maps to the named member.
+    private static bool IsDefinedAccountTypeName(string type) =>
+        Enum.GetNames<AccountType>().Contains(type.Trim(), StringComparer.OrdinalIgnoreCase);
 }

@@ -1,5 +1,6 @@
 using AutoMapper;
 using CoreFinance.Application.Utilities;
+using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.UnitOfWorks;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +43,34 @@ public abstract class BaseService<TEntity, TCreateRequest, TUpdateRequest, TView
     /// <param name="request">The create request to validate.</param>
     /// <exception cref="ValidationException">Thrown when the request violates a validation rule.</exception>
     protected void ValidateCreate(TCreateRequest request) => createValidator.ValidateAndThrow(request);
+
+    private InlineValidator<List<TCreateRequest>>? _createRangeValidator;
+
+    /// <summary>
+    ///     Validates a batch of create requests and throws one exception carrying the errors of every invalid item. (EN)<br />
+    ///     Kiểm tra lô request tạo mới và ném một lỗi duy nhất chứa lỗi của mọi phần tử sai. (VI)
+    /// </summary>
+    /// <param name="requests">The create requests to validate.</param>
+    /// <exception cref="ValidationException">
+    ///     Thrown when the batch exceeds <see cref="CoreFinanceMessages.MaxBatchSize" /> items or any item violates a
+    ///     validation rule.
+    /// </exception>
+    protected void ValidateCreateRange(List<TCreateRequest> requests)
+    {
+        _createRangeValidator ??= BuildCreateRangeValidator();
+        _createRangeValidator.ValidateAndThrow(requests);
+    }
+
+    private InlineValidator<List<TCreateRequest>> BuildCreateRangeValidator()
+    {
+        var validator = new InlineValidator<List<TCreateRequest>>();
+        validator.RuleFor(x => x.Count).LessThanOrEqualTo(CoreFinanceMessages.MaxBatchSize)
+            .WithMessage(CoreFinanceMessages.BatchSizeExceeded);
+        // The item error key prefix comes from this lambda parameter name, so keys read "x[i].<Field>".
+        validator.RuleForEach(x => x).SetValidator(createValidator)
+            .When(x => x.Count <= CoreFinanceMessages.MaxBatchSize);
+        return validator;
+    }
 
     /// <summary>
     ///     Validates an update request and throws when any rule fails. (EN)<br />
@@ -228,16 +257,7 @@ public abstract class BaseService<TEntity, TCreateRequest, TUpdateRequest, TView
         }
     }
 
-    /// <summary>
-    ///     Creates multiple new entities asynchronously. (EN)<br />
-    ///     Tạo nhiều thực thể mới một cách bất đồng bộ. (VI)
-    /// </summary>
-    /// <param name="request">The list of create requests containing the data for the new entities.</param>
-    /// <returns>
-    ///     A task that represents the asynchronous operation. The task result contains the collection of created view
-    ///     models, or an empty collection if the creation failed.
-    /// </returns>
-    /// <exception cref="NullReferenceException"></exception>
+    /// <inheritdoc />
     public virtual async Task<IEnumerable<TViewModel>?> CreateAsync(
         List<TCreateRequest> request)
     {
@@ -247,8 +267,7 @@ public abstract class BaseService<TEntity, TCreateRequest, TUpdateRequest, TView
             return new List<TViewModel>();
         }
 
-        foreach (var item in request)
-            ValidateCreate(item);
+        ValidateCreateRange(request);
 
         await using var trans = await unitOfWork.BeginTransactionAsync();
         try

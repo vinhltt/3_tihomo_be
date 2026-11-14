@@ -20,6 +20,6 @@ public class AdjustTransactionRequestValidator : AbstractValidator<AdjustTransac
             .GreaterThan(0).WithMessage(CoreFinanceMessages.ExpectedAmountMustBePositive).WithErrorCode(CoreFinanceErrorCodes.InvalidAmount);
         RuleFor(x => x.Reason)
             .NotEmpty().WithMessage(CoreFinanceMessages.ReasonRequired).WithErrorCode(CoreFinanceErrorCodes.InvalidReason)
-            .MaximumLength(500).WithMessage(CoreFinanceMessages.ReasonRequired).WithErrorCode(CoreFinanceErrorCodes.InvalidReason);
+            .MaximumLength(CoreFinanceMessages.MaxReasonLength).WithMessage(CoreFinanceMessages.ReasonRequired).WithErrorCode(CoreFinanceErrorCodes.InvalidReason);
     }
 }

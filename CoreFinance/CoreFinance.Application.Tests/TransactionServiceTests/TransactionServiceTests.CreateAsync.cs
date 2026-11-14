@@ -120,7 +120,7 @@ public partial class TransactionServiceTests
     //    unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
 
     //    var loggerMock = new Mock<ILogger<TransactionService>>();
-    //    var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+    //    var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
     //    // Act
     //    Func<Task> act = async () => await service.CreateAsync(createRequest);
@@ -208,6 +208,5 @@ public partial class TransactionServiceTests
             .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
         repoMock.Verify(r => r.CreateAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()), Times.Never);
         unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
-        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
     }
 }

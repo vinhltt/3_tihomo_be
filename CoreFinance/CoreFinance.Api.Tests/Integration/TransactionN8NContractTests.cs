@@ -120,8 +120,10 @@ public class TransactionN8NContractTests : IClassFixture<WebApplicationFactory<P
     /// Tạo multipart form content từ mọi property khác null của request, vì endpoint bind [FromForm] (VI)
     /// </summary>
     /// <remarks>
-    /// Numbers use the current culture, which is what form binding parses with in this in-process host;
-    /// dates use the round-trip format so every culture reads them back unchanged.
+    /// Numbers deliberately use the current culture instead of InvariantCulture: MVC form value providers parse
+    /// with CultureInfo.CurrentCulture (only query and route values use the invariant culture), and this
+    /// in-process host shares the test's culture, so a decimal-comma culture would misread invariant text.
+    /// Dates use the round-trip format so every culture reads them back unchanged.
     /// </remarks>
     private static MultipartFormDataContent CreateFormContent(TransactionCreateRequest request)
     {

@@ -377,8 +377,8 @@ public class CreateAccountRequestValidatorTests
     }
 
     /// <summary>
-    /// Name and Currency keep their length limits, and the payload shape sent by the frontend passes (EN)<br />
-    /// Name và Currency giữ giới hạn độ dài, và payload dạng frontend hiện tại hợp lệ (VI)
+    /// Name and Currency accept values at their length limits and reject values one character over (EN)<br />
+    /// Name và Currency chấp nhận giá trị đúng giới hạn độ dài và từ chối giá trị vượt một ký tự (VI)
     /// </summary>
     [Fact]
     public void Validator_Should_Enforce_Name_And_Currency_Length_Limits()

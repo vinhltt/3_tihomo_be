@@ -1,6 +1,5 @@
 using CoreFinance.Application.Enums;
 using CoreFinance.Domain.Constants;
-using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -245,14 +244,35 @@ public partial class ExpectedTransactionServiceTests
     }
 
     /// <summary>
-    ///     (EN) Characterization: a zero or negative amount reports the invalid-amount code and message.<br />
-    ///     (VI) Đặc tả hiện trạng: số tiền bằng 0 hoặc âm trả mã và message invalid_amount.
+    ///     (EN) Characterization: when both amount and reason are invalid, the amount error is reported first.<br />
+    ///     (VI) Đặc tả hiện trạng: khi cả số tiền và lý do đều sai, lỗi số tiền được trả trước.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AdjustExpectedTransactionAsync_ShouldReturnInvalidAmountFirst_WhenAmountAndReasonAreInvalid(
+        string reason)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, 0m, reason);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidAmount, CoreFinanceMessages.ExpectedAmountMustBePositive);
+    }
+
+    /// <summary>
+    ///     (EN) A non-positive amount on an otherwise adjustable pending period reports the invalid-amount code and message, writes nothing and keeps all amount history untouched.<br />
+    ///     (VI) Số tiền không dương trên kỳ chờ có thể điều chỉnh trả mã và message invalid_amount, không ghi gì và giữ nguyên lịch sử số tiền.
     /// </summary>
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
-    public async Task AdjustExpectedTransactionAsync_ShouldReturnInvalidAmountCodeAndMessage_WhenAmountIsNotPositive(
-        int amount)
+    public async Task AdjustExpectedTransactionAsync_ShouldNotWriteAnything_WhenAmountIsNotPositive(int amount)
     {
         // Arrange
         var expected = Expected(1);
@@ -264,12 +284,13 @@ public partial class ExpectedTransactionServiceTests
         // Assert
         AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
             CoreFinanceErrorCodes.InvalidAmount, CoreFinanceMessages.ExpectedAmountMustBePositive);
-        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        AssertNothingWritten(fixture);
+        AssertPeriodUnchanged(expected);
     }
 
     /// <summary>
-    ///     (EN) Characterization: null, empty, whitespace and 501-character reasons report the invalid-reason code and message.<br />
-    ///     (VI) Đặc tả hiện trạng: lý do null, rỗng, khoảng trắng và 501 ký tự trả mã và message invalid_reason.
+    ///     (EN) A null, empty, whitespace or 501-character reason on an otherwise adjustable pending period reports the invalid-reason code and message, writes nothing and keeps all amount history untouched.<br />
+    ///     (VI) Lý do null, rỗng, khoảng trắng hoặc 501 ký tự trên kỳ chờ có thể điều chỉnh trả mã và message invalid_reason, không ghi gì và giữ nguyên lịch sử số tiền.
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -277,8 +298,7 @@ public partial class ExpectedTransactionServiceTests
     [InlineData("   ")]
     [InlineData(" \t ")]
     [InlineData("501")]
-    public async Task AdjustExpectedTransactionAsync_ShouldReturnInvalidReasonCodeAndMessage_WhenReasonIsInvalid(
-        string? reason)
+    public async Task AdjustExpectedTransactionAsync_ShouldNotWriteAnything_WhenReasonIsInvalid(string? reason)
     {
         // Arrange
         var expected = Expected(1);
@@ -291,58 +311,6 @@ public partial class ExpectedTransactionServiceTests
         // Assert
         AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
             CoreFinanceErrorCodes.InvalidReason, CoreFinanceMessages.ReasonRequired);
-        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    /// <summary>
-    ///     (EN) Characterization: when both amount and reason are invalid, the amount error is reported first.<br />
-    ///     (VI) Đặc tả hiện trạng: khi cả số tiền và lý do đều sai, lỗi số tiền được trả trước.
-    /// </summary>
-    [Fact]
-    public async Task AdjustExpectedTransactionAsync_ShouldReturnInvalidAmountFirst_WhenAmountAndReasonAreInvalid()
-    {
-        // Arrange
-        var expected = Expected(1);
-        var fixture = CreateFixture(expected);
-
-        // Act
-        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, 0m, "   ");
-
-        // Assert
-        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
-            CoreFinanceErrorCodes.InvalidAmount, CoreFinanceMessages.ExpectedAmountMustBePositive);
-    }
-
-    /// <summary>
-    ///     (EN) An invalid amount or reason on an otherwise adjustable pending period writes nothing and keeps all amount history untouched.<br />
-    ///     (VI) Số tiền hoặc lý do không hợp lệ trên kỳ chờ có thể điều chỉnh không ghi gì và giữ nguyên lịch sử số tiền.
-    /// </summary>
-    [Theory]
-    [InlineData(0, "Reading correction", true)]
-    [InlineData(-1, "Reading correction", true)]
-    [InlineData(120, null, false)]
-    [InlineData(120, "", false)]
-    [InlineData(120, " \t ", false)]
-    [InlineData(120, "501", false)]
-    [InlineData(0, "", true)]
-    public async Task AdjustExpectedTransactionAsync_ShouldNotWriteAnything_WhenAmountOrReasonIsInvalid(
-        int amount, string? reason, bool amountError)
-    {
-        // Arrange
-        var expected = Expected(1);
-        var fixture = CreateFixture(expected);
-        var input = reason == "501" ? new string('r', 501) : reason;
-
-        // Act
-        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, amount, input!);
-
-        // Assert
-        if (amountError)
-            AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
-                CoreFinanceErrorCodes.InvalidAmount, CoreFinanceMessages.ExpectedAmountMustBePositive);
-        else
-            AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
-                CoreFinanceErrorCodes.InvalidReason, CoreFinanceMessages.ReasonRequired);
         AssertNothingWritten(fixture);
         AssertPeriodUnchanged(expected);
     }

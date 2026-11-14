@@ -1,5 +1,6 @@
+using System.Globalization;
+using System.Linq.Expressions;
 using CoreFinance.Application.DTOs.ExpectedTransaction;
-using CoreFinance.Application.Validators;
 using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
@@ -393,33 +394,41 @@ public partial class ExpectedTransactionServiceTests
         return request;
     }
 
-    private static string FirstValidatorMessage(ExpectedTransactionCreateRequest request) =>
-        new ExpectedTransactionCreateRequestValidator().Validate(request).Errors[0].ErrorMessage;
-
     /// <summary>
     ///     (EN) Characterization: single creation reports the first validator failure message and writes nothing.<br />
     ///     (VI) Đặc tả hiện trạng: tạo đơn lẻ trả message lỗi validator đầu tiên và không ghi gì.
     /// </summary>
+    // The default-message literals below were captured under en-US from FluentValidation 12.0.0.
     [Theory]
     [InlineData("emptyTemplate", "RecurringTransactionTemplateId", CoreFinanceMessages.TemplateIdMustNotBeEmpty)]
     [InlineData("emptyAccount", "AccountId", CoreFinanceMessages.AccountIdMustNotBeEmpty)]
     [InlineData("terminalStatus", "Status", CoreFinanceMessages.NewExpectedTransactionsMustBePending)]
-    [InlineData("zeroAmount", "ExpectedAmount", null)]
-    [InlineData("defaultDate", "ExpectedDate", null)]
+    [InlineData("zeroAmount", "ExpectedAmount", "'Expected Amount' must be greater than '0'.")]
+    [InlineData("defaultDate", "ExpectedDate", "'Expected Date' must not be empty.")]
     public async Task CreateAsync_ShouldReportFirstValidatorMessageWithoutWriting_WhenRequestIsInvalid(
-        string kind, string propertyName, string? message)
+        string kind, string propertyName, string message)
     {
         // Arrange
         var fixture = CreateFixture();
         var request = InvalidCreateRequest(kind);
+        var previousCulture = CultureInfo.CurrentUICulture;
+        CultureInfo.CurrentUICulture = new CultureInfo("en-US");
 
-        // Act
-        Func<Task> act = () => fixture.Service.CreateAsync(request);
+        try
+        {
+            // Act
+            Func<Task> act = () => fixture.Service.CreateAsync(request);
 
-        // Assert
-        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
-        failure.Errors.First().PropertyName.Should().Be(propertyName);
-        failure.Errors.First().ErrorMessage.Should().Be(message ?? FirstValidatorMessage(request));
+            // Assert
+            var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+            failure.Errors.First().PropertyName.Should().Be(propertyName);
+            failure.Errors.First().ErrorMessage.Should().Be(message);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = previousCulture;
+        }
+
         fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<ExpectedTransaction>(),
             It.IsAny<CancellationToken>()), Times.Never);
         fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<List<ExpectedTransaction>>()), Times.Never);
@@ -431,26 +440,38 @@ public partial class ExpectedTransactionServiceTests
     ///     (EN) Characterization: batch creation reports the failing item's first validator message and writes nothing.<br />
     ///     (VI) Đặc tả hiện trạng: tạo batch trả message lỗi validator đầu tiên của mục sai và không ghi gì.
     /// </summary>
+    // The default-message literals below were captured under en-US from FluentValidation 12.0.0.
     [Theory]
     [InlineData("emptyTemplate", "RecurringTransactionTemplateId", CoreFinanceMessages.TemplateIdMustNotBeEmpty)]
     [InlineData("emptyAccount", "AccountId", CoreFinanceMessages.AccountIdMustNotBeEmpty)]
     [InlineData("terminalStatus", "Status", CoreFinanceMessages.NewExpectedTransactionsMustBePending)]
-    [InlineData("zeroAmount", "ExpectedAmount", null)]
+    [InlineData("zeroAmount", "ExpectedAmount", "'Expected Amount' must be greater than '0'.")]
+    [InlineData("defaultDate", "ExpectedDate", "'Expected Date' must not be empty.")]
     public async Task CreateAsync_ShouldReportFirstValidatorMessageWithoutWriting_WhenSecondBatchItemIsInvalid(
-        string kind, string propertyName, string? message)
+        string kind, string propertyName, string message)
     {
         // Arrange
         var fixture = CreateFixture();
         var requests = ValidBatch();
         requests[1] = InvalidCreateRequest(kind);
+        var previousCulture = CultureInfo.CurrentUICulture;
+        CultureInfo.CurrentUICulture = new CultureInfo("en-US");
 
-        // Act
-        Func<Task> act = () => fixture.Service.CreateAsync(requests);
+        try
+        {
+            // Act
+            Func<Task> act = () => fixture.Service.CreateAsync(requests);
 
-        // Assert
-        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
-        failure.Errors.First().PropertyName.Should().Be(propertyName);
-        failure.Errors.First().ErrorMessage.Should().Be(message ?? FirstValidatorMessage(requests[1]));
+            // Assert
+            var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+            failure.Errors.First().PropertyName.Should().Be(BatchItemKey(1, propertyName));
+            failure.Errors.First().ErrorMessage.Should().Be(message);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = previousCulture;
+        }
+
         fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<List<ExpectedTransaction>>()), Times.Never);
         fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<ExpectedTransaction>(),
             It.IsAny<CancellationToken>()), Times.Never);
@@ -458,12 +479,16 @@ public partial class ExpectedTransactionServiceTests
         fixture.CreatedExpectedTransactions.Should().BeEmpty();
     }
 
+    // FluentValidation 12.0.0 prefixes a collection rule built with RuleForEach(x => x) by the lambda parameter name,
+    // so the key of the second item's Amount is "x[1].ExpectedAmount" (observed, not assumed).
+    private static string BatchItemKey(int index, string property) => $"x[{index}].{property}";
+
     /// <summary>
-    ///     (EN) Characterization: with several invalid batch items, only the first item's first message is reported.<br />
-    ///     (VI) Đặc tả hiện trạng: khi nhiều mục batch sai, chỉ message đầu tiên của mục đầu tiên được trả.
+    ///     (EN) With several invalid batch items, every invalid item is reported with its index in one exception, in item order.<br />
+    ///     (VI) Khi nhiều mục batch sai, mọi mục sai được trả kèm chỉ số trong một ngoại lệ, theo thứ tự mục.
     /// </summary>
     [Fact]
-    public async Task CreateAsync_ShouldReportOnlyFirstItemMessage_WhenSeveralBatchItemsAreInvalid()
+    public async Task CreateAsync_ShouldReportEveryInvalidItem_WhenSeveralBatchItemsAreInvalid()
     {
         // Arrange
         var fixture = CreateFixture();
@@ -477,8 +502,167 @@ public partial class ExpectedTransactionServiceTests
 
         // Assert
         var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
-        failure.Errors.First().ErrorMessage.Should().Be(CoreFinanceMessages.AccountIdMustNotBeEmpty);
+        failure.Errors.Select(error => (error.PropertyName, error.ErrorMessage)).Should().Equal(
+            (BatchItemKey(0, "AccountId"), CoreFinanceMessages.AccountIdMustNotBeEmpty),
+            (BatchItemKey(1, "Status"), CoreFinanceMessages.NewExpectedTransactionsMustBePending));
         fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<List<ExpectedTransaction>>()), Times.Never);
+        fixture.CreatedExpectedTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) A batch above the size limit reports exactly one limit error even when its items are invalid, and writes nothing.<br />
+    ///     (VI) Batch vượt giới hạn kích thước chỉ trả đúng một lỗi giới hạn dù các mục sai, và không ghi gì.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldReportOnlyBatchLimitWithoutWriting_WhenBatchExceedsMaxSize()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var requests = Enumerable.Range(0, CoreFinanceMessages.MaxBatchSize + 1)
+            .Select(_ => InvalidCreateRequest("zeroAmount")).ToList();
+
+        // Act
+        Func<Task> act = () => fixture.Service.CreateAsync(requests);
+
+        // Assert
+        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        failure.Errors.Should().ContainSingle().Which.ErrorMessage.Should().Be(CoreFinanceMessages.BatchSizeExceeded);
+        fixture.AccountRepository.Verify(r => r.GetNoTrackingEntities(It.IsAny<Expression<Func<Account, object>>[]>()),
+            Times.Never);
+        fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<List<ExpectedTransaction>>()), Times.Never);
+        fixture.UnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+        fixture.CreatedExpectedTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) A valid batch of exactly the maximum size is created.<br />
+    ///     (VI) Batch hợp lệ đúng bằng kích thước tối đa được tạo.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldCreateAllPeriods_WhenBatchHasExactlyMaxSize()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var requests = Enumerable.Range(0, CoreFinanceMessages.MaxBatchSize)
+            .Select(offset => new ExpectedTransactionCreateRequest
+            {
+                AccountId = AccountId, ExpectedDate = Today.AddDays(offset), ExpectedAmount = 10m
+            }).ToList();
+
+        // Act
+        var result = await fixture.Service.CreateAsync(requests);
+
+        // Assert
+        result.Should().HaveCount(CoreFinanceMessages.MaxBatchSize);
+        fixture.CreatedExpectedTransactions.Should().HaveCount(CoreFinanceMessages.MaxBatchSize);
+    }
+
+    /// <summary>
+    ///     (EN) Format validation of the whole batch runs before any reference lookup: a missing account on item 0 does not hide a
+    ///     format error on item 1, and no reference query is executed.<br />
+    ///     (VI) Kiểm tra định dạng cả batch chạy trước mọi truy vấn tham chiếu: item 0 thiếu account không che lỗi định dạng của
+    ///     item 1, và không truy vấn tham chiếu nào được thực thi.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldThrowValidationWithoutReferenceQuery_WhenFirstItemReferenceIsMissingAndSecondFormatIsInvalid()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var requests = ValidBatch();
+        requests[0].AccountId = Id(50);
+        requests[1].ExpectedAmount = 0;
+
+        // Act
+        Func<Task> act = () => fixture.Service.CreateAsync(requests);
+
+        // Assert
+        var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+        failure.Errors.Select(error => error.PropertyName).Should().Equal(BatchItemKey(1, "ExpectedAmount"));
+        fixture.AccountRepository.Verify(r => r.GetNoTrackingEntities(It.IsAny<Expression<Func<Account, object>>[]>()),
+            Times.Never);
+        fixture.TemplateRepository.Verify(
+            r => r.GetNoTrackingEntities(It.IsAny<Expression<Func<RecurringTransactionTemplate, object>>[]>()),
+            Times.Never);
+        fixture.ExpectedRepository.Verify(r => r.CreateAsync(It.IsAny<List<ExpectedTransaction>>()), Times.Never);
+        fixture.CreatedExpectedTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Reference lookup for a batch is set-based: many items sharing one account query the Account source once and
+    ///     the Template source at most once, instead of once per item.<br />
+    ///     (VI) Tra cứu tham chiếu cho batch theo tập: nhiều mục dùng chung một account chỉ truy vấn nguồn Account một lần và
+    ///     nguồn Template tối đa một lần, thay vì mỗi mục một lần.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldQueryAccountSourceOnce_WhenManyBatchItemsShareOneAccount()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var requests = Enumerable.Range(0, 5)
+            .Select(offset => new ExpectedTransactionCreateRequest
+            {
+                AccountId = AccountId,
+                RecurringTransactionTemplateId = TemplateId,
+                ExpectedDate = Today.AddDays(offset),
+                ExpectedAmount = 10m + offset
+            }).ToList();
+
+        // Act
+        var result = await fixture.Service.CreateAsync(requests);
+
+        // Assert
+        result.Should().HaveCount(5);
+        fixture.AccountRepository.Verify(r => r.GetNoTrackingEntities(It.IsAny<Expression<Func<Account, object>>[]>()),
+            Times.Once);
+        fixture.TemplateRepository.Verify(
+            r => r.GetNoTrackingEntities(It.IsAny<Expression<Func<RecurringTransactionTemplate, object>>[]>()),
+            Times.AtMostOnce);
+    }
+
+    /// <summary>
+    ///     (EN) Reference exception order is unchanged: items are walked in order, so a missing template on item 0 wins over
+    ///     a missing account on item 1.<br />
+    ///     (VI) Thứ tự ngoại lệ tham chiếu không đổi: duyệt mục theo thứ tự nên template thiếu ở mục 0 được báo trước account
+    ///     thiếu ở mục 1.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldReportFirstItemTemplateNotFound_WhenFirstTemplateAndSecondAccountAreMissing()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var requests = ValidBatch();
+        requests[0].AccountId = null;
+        requests[0].RecurringTransactionTemplateId = Id(50);
+        requests[1].AccountId = Id(50);
+
+        // Act
+        Func<Task> act = () => fixture.Service.CreateAsync(requests);
+
+        // Assert
+        await act.Should().ThrowAsync<EntityNotFoundException>()
+            .WithMessage(CoreFinanceMessages.RecurringTransactionTemplateNotFound);
+        fixture.CreatedExpectedTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Within one item the account is checked before the template, so an item missing both reports the account.<br />
+    ///     (VI) Trong cùng một mục, account được kiểm tra trước template nên mục thiếu cả hai báo account.
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldReportAccountNotFound_WhenSameBatchItemMissesAccountAndTemplate()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var requests = ValidBatch();
+        requests[0].AccountId = Id(50);
+        requests[0].RecurringTransactionTemplateId = Id(51);
+
+        // Act
+        Func<Task> act = () => fixture.Service.CreateAsync(requests);
+
+        // Assert
+        await act.Should().ThrowAsync<EntityNotFoundException>().WithMessage(CoreFinanceMessages.AccountNotFound);
         fixture.CreatedExpectedTransactions.Should().BeEmpty();
     }
 }

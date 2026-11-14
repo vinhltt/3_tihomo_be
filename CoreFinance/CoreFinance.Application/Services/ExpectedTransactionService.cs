@@ -176,7 +176,7 @@ public class ExpectedTransactionService(
     public override async Task<ExpectedTransactionViewModel?> CreateAsync(ExpectedTransactionCreateRequest request)
     {
         ValidateCreate(request);
-        await ValidateReferencesAsync(request);
+        await ValidateReferencesAsync([request]);
         await using var trans = await _unitOfWork.BeginTransactionAsync();
         try
         {
@@ -203,11 +203,8 @@ public class ExpectedTransactionService(
         List<ExpectedTransactionCreateRequest> request)
     {
         if (request.Count == 0) return Array.Empty<ExpectedTransactionViewModel>();
-        foreach (var item in request)
-        {
-            ValidateCreate(item);
-            await ValidateReferencesAsync(item);
-        }
+        ValidateCreateRange(request);
+        await ValidateReferencesAsync(request);
 
         await using var trans = await _unitOfWork.BeginTransactionAsync();
         try
@@ -231,15 +228,28 @@ public class ExpectedTransactionService(
         }
     }
 
-    private async Task ValidateReferencesAsync(ExpectedTransactionCreateRequest request)
+    // One owner-scoped query per reference type, then items are walked in order (account before template)
+    // so the first missing reference throws the same exception and message as a per-item check would.
+    private async Task ValidateReferencesAsync(List<ExpectedTransactionCreateRequest> requests)
     {
-        if (request.AccountId is { } accountId &&
-            !await _unitOfWork.Repository<Account, Guid>().GetNoTrackingEntities().AnyAsync(a => a.Id == accountId))
-            throw new EntityNotFoundException(CoreFinanceMessages.AccountNotFound);
-        if (request.RecurringTransactionTemplateId is { } templateId &&
-            !await _unitOfWork.Repository<RecurringTransactionTemplate, Guid>().GetNoTrackingEntities()
-                .AnyAsync(t => t.Id == templateId))
-            throw new EntityNotFoundException(CoreFinanceMessages.RecurringTransactionTemplateNotFound);
+        var accountIds = requests.Select(r => r.AccountId).OfType<Guid>().Distinct().ToList();
+        var templateIds = requests.Select(r => r.RecurringTransactionTemplateId).OfType<Guid>().Distinct().ToList();
+        var existingAccountIds = accountIds.Count == 0
+            ? []
+            : (await _unitOfWork.Repository<Account, Guid>().GetNoTrackingEntities()
+                .Where(a => accountIds.Contains(a.Id)).Select(a => a.Id).ToListAsync()).ToHashSet();
+        var existingTemplateIds = templateIds.Count == 0
+            ? []
+            : (await _unitOfWork.Repository<RecurringTransactionTemplate, Guid>().GetNoTrackingEntities()
+                .Where(t => templateIds.Contains(t.Id)).Select(t => t.Id).ToListAsync()).ToHashSet();
+
+        foreach (var request in requests)
+        {
+            if (request.AccountId is { } accountId && !existingAccountIds.Contains(accountId))
+                throw new EntityNotFoundException(CoreFinanceMessages.AccountNotFound);
+            if (request.RecurringTransactionTemplateId is { } templateId && !existingTemplateIds.Contains(templateId))
+                throw new EntityNotFoundException(CoreFinanceMessages.RecurringTransactionTemplateNotFound);
+        }
     }
 
     /// <inheritdoc />
@@ -338,8 +348,12 @@ public class ExpectedTransactionService(
                     Description = entity.Description
                 });
             }
-            catch (ValidationException)
+            catch (ValidationException ex)
             {
+                // Log field names and error codes only: the exception text and attempted values may carry user input.
+                foreach (var error in ex.Errors)
+                    logger.LogWarning("Actual transaction validation failed while recording payment: {PropertyName} {ErrorCode}",
+                        error.PropertyName, error.ErrorCode);
                 // The actual transaction validator runs before any write, so the period is still untouched here.
                 return Failure(entity.Id, ExpectedTransactionActionOutcome.InvalidRequest, CoreFinanceErrorCodes.InvalidRequest, CoreFinanceMessages.InvalidValues);
             }
@@ -481,7 +495,8 @@ public class ExpectedTransactionService(
         }
     }
 
-    private static bool ValidReason(string? reason) => !string.IsNullOrWhiteSpace(reason) && reason.Length <= 500;
+    private static bool ValidReason(string? reason) =>
+        !string.IsNullOrWhiteSpace(reason) && reason.Length <= CoreFinanceMessages.MaxReasonLength;
 
     private static void ApplyAdjustment(ExpectedTransaction entity, decimal amount, string reason)
     {

@@ -44,11 +44,10 @@ public class UpdateAccountRequestValidatorTests
     /// Name bắt buộc và tối đa 100 ký tự (VI)
     /// </summary>
     [Theory]
-    [InlineData(null, false)]
-    [InlineData("", false)]
-    [InlineData("   ", false)]
-    [InlineData("x", true)]
-    public void Validator_Should_Require_Name(string? name, bool valid)
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Validator_Should_Reject_Missing_Name(string? name)
     {
         // Arrange
         var request = CreateValidRequest();
@@ -58,8 +57,25 @@ public class UpdateAccountRequestValidatorTests
         var result = _validator.TestValidate(request);
 
         // Assert
-        if (valid) result.ShouldNotHaveValidationErrorFor(x => x.Name);
-        else result.ShouldHaveValidationErrorFor(x => x.Name);
+        result.ShouldHaveValidationErrorFor(x => x.Name);
+    }
+
+    /// <summary>
+    /// A non-blank Name is accepted (EN)<br />
+    /// Name không rỗng được chấp nhận (VI)
+    /// </summary>
+    [Fact]
+    public void Validator_Should_Accept_Non_Blank_Name()
+    {
+        // Arrange
+        var request = CreateValidRequest();
+        request.Name = "x";
+
+        // Act
+        var result = _validator.TestValidate(request);
+
+        // Assert
+        result.ShouldNotHaveValidationErrorFor(x => x.Name);
     }
 
     /// <summary>
@@ -114,10 +130,12 @@ public class UpdateAccountRequestValidatorTests
     [Theory]
     [InlineData("Bank")]
     [InlineData("bank")]
+    [InlineData("WALLET")]
     [InlineData("Wallet")]
     [InlineData("CreditCard")]
     [InlineData("DebitCard")]
     [InlineData("Cash")]
+    [InlineData(" Bank ")]
     public void Validator_Should_Accept_Defined_Type_Names(string type)
     {
         // Arrange
@@ -132,8 +150,9 @@ public class UpdateAccountRequestValidatorTests
     }
 
     /// <summary>
-    /// Type rejects null, blank, undefined numeric values and unknown names (EN)<br />
-    /// Type từ chối null, rỗng, giá trị số không định nghĩa và tên lạ (VI)
+    /// Type rejects null, blank, numeric strings, comma-joined names and unknown names with exactly one error
+    /// carrying the dedicated message (EN)<br />
+    /// Type từ chối null, rỗng, chuỗi số, tên ghép dấu phẩy và tên lạ với đúng một lỗi mang message riêng (VI)
     /// </summary>
     [Theory]
     [InlineData(null)]
@@ -141,8 +160,10 @@ public class UpdateAccountRequestValidatorTests
     [InlineData("   ")]
     [InlineData("99")]
     [InlineData("-1")]
+    [InlineData("0")]
     [InlineData("Foo")]
-    public void Validator_Should_Reject_Missing_Or_Undefined_Type(string? type)
+    [InlineData("Bank,Wallet")]
+    public void Validator_Should_Reject_Missing_Or_Undefined_Type_With_Single_Error(string? type)
     {
         // Arrange
         var request = CreateValidRequest();
@@ -152,7 +173,9 @@ public class UpdateAccountRequestValidatorTests
         var result = _validator.TestValidate(request);
 
         // Assert
-        result.ShouldHaveValidationErrorFor(x => x.Type);
+        var typeErrors = result.Errors.Where(error => error.PropertyName == nameof(AccountUpdateRequest.Type)).ToList();
+        typeErrors.Should().ContainSingle()
+            .Which.ErrorMessage.Should().Be(CoreFinanceMessages.AccountTypeInvalid);
     }
 
     /// <summary>

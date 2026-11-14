@@ -32,6 +32,8 @@ public sealed class CrudValidationProblemPostgresTests
         await using var fixture = await Thm3PostgresFixture.CreateAsync();
         using var api = await fixture.LoginAsync("crud-validation-account-post");
         var validForm = AccountForm();
+        // Type "99" is out of the enum range: the 400 comes from [ApiController] model binding before the service runs;
+        // the service-level IsInEnum rule is proven by unit theories.
         InvalidInput[] cases =
         [
             new("Name", ""), new("Type", "99"), new("Currency", ""), new("Code", "Bad Code")
@@ -58,9 +60,12 @@ public sealed class CrudValidationProblemPostgresTests
         {
             ["Id"] = id.ToString(), ["Name"] = "Edited account", ["Type"] = "Bank", ["Currency"] = "VND"
         };
+        // Type is a string on the update DTO, so both cases reach the validator (NotEmpty, then defined-enum-name):
+        // an empty value binds to null and an omitted field stays null.
         InvalidInput[] cases =
         [
-            new("Name", ""), new("Type", "NotAnAccountType"), new("Currency", ""), new("Code", "Bad Code")
+            new("Name", ""), new("Type", "NotAnAccountType"), new("Currency", ""), new("Code", "Bad Code"),
+            new("Type", ""), new("Type", null)
         ];
 
         // Act + Assert
@@ -80,10 +85,12 @@ public sealed class CrudValidationProblemPostgresTests
         using var api = await fixture.LoginAsync("crud-validation-transaction-post");
         var accountId = await api.CreateAccountAsync("Transaction account");
         var validForm = TransactionForm(accountId, fixture.Today);
+        // CategoryType "99" is out of the enum range: the 400 comes from [ApiController] model binding before the
+        // service runs; the service-level IsInEnum rule is proven by unit theories.
         InvalidInput[] cases =
         [
             new("AccountId", Guid.Empty.ToString()), new("TransactionDate", null), new("SpentAmount", "-1"),
-            new("CategoryType", "99")
+            new("CategoryType", "99"), new("RevenueAmount", "-1")
         ];
 
         // Act + Assert
@@ -110,10 +117,12 @@ public sealed class CrudValidationProblemPostgresTests
         var validForm = TransactionForm(accountId, fixture.Today);
         validForm["Id"] = id.ToString();
         validForm["Description"] = "Edited description";
+        // CategoryType "99" is out of the enum range: the 400 comes from [ApiController] model binding before the
+        // service runs; the service-level IsInEnum rule is proven by unit theories.
         InvalidInput[] cases =
         [
             new("AccountId", Guid.Empty.ToString()), new("TransactionDate", null), new("SpentAmount", "-1"),
-            new("CategoryType", "99")
+            new("CategoryType", "99"), new("RevenueAmount", "-1")
         ];
 
         // Act + Assert
@@ -134,9 +143,14 @@ public sealed class CrudValidationProblemPostgresTests
         using var api = await fixture.LoginAsync("crud-validation-template-post");
         var accountId = await api.CreateAccountAsync("Template account");
         var validForm = TemplateForm(accountId, fixture.Today, "New template", daysInAdvance: "7");
+        var defaultStartDate = default(DateTime).ToString("O", CultureInfo.InvariantCulture);
+        // Frequency and TransactionType "99" are out of the enum range: the 400 comes from [ApiController] model
+        // binding before the service runs; the service-level IsInEnum rules are proven by unit theories.
         InvalidInput[] cases =
         [
-            new("Name", ""), new("Amount", "0"), new("DaysInAdvance", "0"), new("Frequency", "99")
+            new("Name", ""), new("Amount", "0"), new("DaysInAdvance", "0"), new("Frequency", "99"),
+            new("AccountId", Guid.Empty.ToString()), new("StartDate", defaultStartDate),
+            new("TransactionType", "99"), new("CustomIntervalDays", "0")
         ];
 
         // Act + Assert
@@ -157,9 +171,16 @@ public sealed class CrudValidationProblemPostgresTests
         var id = await CreateTemplateAsync(api, fixture, "Original template");
         var before = await ReadTemplateAsync(fixture, id);
         var validForm = new Dictionary<string, string> { ["Id"] = id.ToString() };
+        var defaultStartDate = default(DateTime).ToString("O", CultureInfo.InvariantCulture);
+        // Frequency and TransactionType "99" are out of the enum range: the 400 comes from [ApiController] model
+        // binding before the service runs; the service-level IsInEnum rules are proven by unit theories.
+        // The update DTO has no AccountId, so there is no AccountId 400 case on PUT; the ignored field is pinned by
+        // Template_Put_Should_Return_200_And_Keep_The_Account_When_AccountId_Is_Sent. StartDate and CustomIntervalDays
+        // only validate when supplied, which these cases do.
         InvalidInput[] cases =
         [
-            new("Name", new string('n', 201)), new("Amount", "0"), new("DaysInAdvance", "0"), new("Frequency", "99")
+            new("Name", new string('n', 201)), new("Amount", "0"), new("DaysInAdvance", "0"), new("Frequency", "99"),
+            new("StartDate", defaultStartDate), new("TransactionType", "99"), new("CustomIntervalDays", "0")
         ];
 
         // Act + Assert
@@ -190,6 +211,36 @@ public sealed class CrudValidationProblemPostgresTests
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
         (await ReadTemplateAsync(fixture, id)).Name.Should().Be("Original template");
+    }
+
+    /// <summary>
+    ///     (EN) The template update DTO has no AccountId, so an AccountId sent on PUT is ignored: the update succeeds and
+    ///     the template stays on its original account.<br />
+    ///     (VI) DTO cập nhật mẫu không có AccountId nên AccountId gửi kèm khi PUT bị bỏ qua: cập nhật thành công và mẫu
+    ///     vẫn thuộc tài khoản ban đầu.
+    /// </summary>
+    [Fact]
+    public async Task Template_Put_Should_Return_200_And_Keep_The_Account_When_AccountId_Is_Sent()
+    {
+        // Arrange
+        await using var fixture = await Thm3PostgresFixture.CreateAsync();
+        using var api = await fixture.LoginAsync("crud-validation-template-put-account-id");
+        var id = await CreateTemplateAsync(api, fixture, "Original template");
+        var originalAccountId = await ReadTemplateAccountIdAsync(fixture, id);
+        var otherAccountId = await api.CreateAccountAsync("Other account");
+        originalAccountId.Should().NotBeNull().And.NotBe(otherAccountId);
+
+        // Act
+        using var response = await api.PutFormAsync($"{TemplateRoute}/{id}", new Dictionary<string, string>
+        {
+            ["Id"] = id.ToString(), ["Name"] = "Edited template", ["AccountId"] = otherAccountId.ToString()
+        });
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await ReadTemplateAsync(fixture, id)).Name.Should().Be("Edited template", "the update itself was applied");
+        (await ReadTemplateAccountIdAsync(fixture, id)).Should().Be(originalAccountId,
+            "AccountId is not part of the update form, so it must not move the template");
     }
 
     /// <summary>
@@ -309,6 +360,10 @@ public sealed class CrudValidationProblemPostgresTests
                 template.DaysInAdvance, template.StartDate, template.NextExecutionDate, template.IsActive,
                 template.UpdatedAt))
             .SingleAsync());
+
+    private static Task<Guid?> ReadTemplateAccountIdAsync(Thm3PostgresFixture fixture, Guid id) =>
+        fixture.ReadAsync(db => db.RecurringTransactionTemplates.IgnoreQueryFilters().AsNoTracking()
+            .Where(template => template.Id == id).Select(template => template.AccountId).SingleAsync());
 
     private sealed record AccountSnapshot(string? Name, AccountType Type, string? Currency, string? Code,
         decimal InitialBalance, DateTime? UpdatedAt);

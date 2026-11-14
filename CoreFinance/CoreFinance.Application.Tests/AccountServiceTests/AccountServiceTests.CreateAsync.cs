@@ -192,4 +192,42 @@ public partial class AccountServiceTests
         repoMock.Verify(r => r.CreateAsync(It.IsAny<Account>(), It.IsAny<CancellationToken>()), Times.Never);
         unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
     }
+
+    /// <summary>
+    ///     Verifies that CreateAsync accepts a Bank account with a negative initial balance and keeps both values. (EN)<br />
+    ///     Xác minh rằng CreateAsync chấp nhận tài khoản Bank có số dư ban đầu âm và giữ nguyên cả hai giá trị. (VI)
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_ShouldAcceptBankTypeAndNegativeInitialBalance_WhenRequestIsValid()
+    {
+        // Arrange
+        var createRequest = new AccountCreateRequest
+        {
+            Name = "Overdraft Account",
+            Type = AccountType.Bank,
+            Currency = "VND",
+            InitialBalance = -250.50m,
+            UserId = Guid.CreateVersion7()
+        };
+        var repoMock = new Mock<IBaseRepository<Account, Guid>>();
+        repoMock.Setup(r => r.CreateAsync(It.IsAny<Account>())).ReturnsAsync(1);
+        var transactionMock = new Mock<IDbContextTransaction>();
+        transactionMock.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
+        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, new Mock<ILogger<AccountService>>().Object);
+
+        // Act
+        var result = await service.CreateAsync(createRequest);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Type.Should().Be(AccountType.Bank);
+        result.InitialBalance.Should().Be(-250.50m);
+        repoMock.Verify(r => r.CreateAsync(It.Is<Account>(account =>
+            account.Type == AccountType.Bank && account.InitialBalance == -250.50m)), Times.Once);
+        transactionMock.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
 }

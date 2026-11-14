@@ -6,6 +6,7 @@ using CoreFinance.Domain.Enums;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Moq;
+using Npgsql;
 
 namespace CoreFinance.Application.Tests.ExpectedTransactionServiceTests;
 
@@ -276,6 +277,7 @@ public partial class ExpectedTransactionServiceTests
         AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
             CoreFinanceErrorCodes.InvalidActualTransaction, CoreFinanceMessages.ActualTransactionIdRequired);
         AssertNothingWritten(fixture);
+        fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Never);
         AssertPeriodUnchanged(expected);
     }
 
@@ -300,27 +302,6 @@ public partial class ExpectedTransactionServiceTests
         result.Message.Should().Be(CoreFinanceMessages.ExpectedTransactionConfirmed);
         result.ExpectedTransactionId.Should().Be(expected.Id);
         result.ActualTransactionId.Should().Be(ActualId);
-    }
-
-    /// <summary>
-    ///     (EN) Characterization: an empty actual ID reports the invalid-actual code and required-ID message.<br />
-    ///     (VI) Đặc tả hiện trạng: ID giao dịch thực rỗng trả mã invalid_actual_transaction và message yêu cầu ID.
-    /// </summary>
-    [Fact]
-    public async Task ConfirmExpectedTransactionAsync_ShouldReturnInvalidActualCodeAndMessage_WhenActualIdIsEmpty()
-    {
-        // Arrange
-        var expected = Expected(1);
-        var fixture = CreateFixture(expected);
-
-        // Act
-        var result = await fixture.Service.ConfirmExpectedTransactionAsync(expected.Id, Guid.Empty);
-
-        // Assert
-        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
-            CoreFinanceErrorCodes.InvalidActualTransaction, CoreFinanceMessages.ActualTransactionIdRequired);
-        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
-        fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     /// <summary>
@@ -497,8 +478,8 @@ public partial class ExpectedTransactionServiceTests
         var expected = Expected(1);
         var fixture = CreateFixture(expected);
         fixture.ActualTransactions.Add(new Transaction { Id = ActualId, UserId = OwnerId });
-        var postgresError = new Npgsql.PostgresException("Write rejected", "ERROR", "ERROR",
-            Npgsql.PostgresErrorCodes.UniqueViolation, constraintName: "ux_expected_actual_transaction");
+        var postgresError = new PostgresException("Write rejected", "ERROR", "ERROR",
+            PostgresErrorCodes.UniqueViolation, constraintName: "ux_expected_actual_transaction");
         fixture.ExpectedRepository.Setup(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new DbUpdateException("Write failed", postgresError));

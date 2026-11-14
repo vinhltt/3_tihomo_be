@@ -2,6 +2,7 @@ using Bogus;
 using CoreFinance.Application.DTOs.Account;
 using CoreFinance.Application.Services;
 using CoreFinance.Domain.BaseRepositories;
+using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using CoreFinance.Domain.UnitOfWorks;
@@ -217,9 +218,111 @@ public partial class AccountServiceTests
 
         // Assert
         (await act.Should().ThrowAsync<FluentValidation.ValidationException>())
-            .Which.Errors.Should().Contain(error => error.PropertyName == nameof(AccountCreateRequest.Name));
+            .Which.Errors.Should().Contain(error => error.PropertyName == BatchItemKey(1, nameof(AccountCreateRequest.Name)));
         repoMock.Verify(r => r.CreateAsync(It.IsAny<List<Account>>()), Times.Never);
         repoMock.Verify(r => r.CreateAsync(It.IsAny<Account>(), It.IsAny<CancellationToken>()), Times.Never);
         unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
+    }
+
+    // FluentValidation 12.0.0 prefixes a collection rule built with RuleForEach(x => x) by the lambda parameter name,
+    // so the key of the second item's Name is "x[1].Name" (observed, not assumed).
+    private static string BatchItemKey(int index, string property) => $"x[{index}].{property}";
+
+    private static AccountCreateRequest ValidAccountRequest() =>
+        new() { Name = "Valid Wallet", Type = AccountType.Wallet, Currency = "USD", UserId = Guid.CreateVersion7() };
+
+    private static AccountCreateRequest InvalidAccountRequest() =>
+        new() { Name = "", Type = AccountType.Bank, Currency = "USD", UserId = Guid.CreateVersion7() };
+
+    /// <summary>
+    ///     Verifies that CreateAsync (list version) reports the errors of every invalid item in one ValidationException
+    ///     with index-qualified keys, and the first error belongs to the first invalid item. (EN)<br />
+    ///     Xác minh rằng CreateAsync (phiên bản danh sách) gom lỗi của mọi phần tử sai vào một ValidationException với key
+    ///     có chỉ số, và lỗi đầu tiên thuộc phần tử sai đầu tiên. (VI)
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_List_ShouldReportEveryInvalidItemWithIndexedKeys_WhenSeveralItemsAreInvalid()
+    {
+        // Arrange
+        var createRequests = new List<AccountCreateRequest>
+        {
+            InvalidAccountRequest(), ValidAccountRequest(), InvalidAccountRequest()
+        };
+        var repoMock = new Mock<IBaseRepository<Account, Guid>>();
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
+        var loggerMock = new Mock<ILogger<AccountService>>();
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+
+        // Act
+        Func<Task> act = async () => await service.CreateAsync(createRequests);
+
+        // Assert
+        var failure = (await act.Should().ThrowAsync<FluentValidation.ValidationException>()).Which;
+        failure.Errors.Select(error => error.PropertyName).Should().Equal(
+            BatchItemKey(0, nameof(AccountCreateRequest.Name)),
+            BatchItemKey(2, nameof(AccountCreateRequest.Name)));
+        failure.Errors.First().PropertyName.Should().Be(BatchItemKey(0, nameof(AccountCreateRequest.Name)));
+        repoMock.Verify(r => r.CreateAsync(It.IsAny<List<Account>>()), Times.Never);
+        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
+    }
+
+    /// <summary>
+    ///     Verifies that CreateAsync (list version) rejects a batch above the limit with exactly one limit error, even when
+    ///     its items are invalid, and neither opens a transaction, writes nor saves. (EN)<br />
+    ///     Xác minh rằng CreateAsync (phiên bản danh sách) từ chối lô vượt giới hạn chỉ với đúng một lỗi giới hạn, kể cả khi
+    ///     các phần tử sai, và không mở giao dịch, không ghi, không lưu. (VI)
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_List_ShouldReportOnlyBatchLimitWithoutWriting_WhenBatchExceedsMaxSize()
+    {
+        // Arrange
+        var createRequests = Enumerable.Range(0, CoreFinanceMessages.MaxBatchSize + 1)
+            .Select(_ => InvalidAccountRequest()).ToList();
+        var repoMock = new Mock<IBaseRepository<Account, Guid>>();
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
+        var loggerMock = new Mock<ILogger<AccountService>>();
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+
+        // Act
+        Func<Task> act = async () => await service.CreateAsync(createRequests);
+
+        // Assert
+        var failure = (await act.Should().ThrowAsync<FluentValidation.ValidationException>()).Which;
+        failure.Errors.Should().ContainSingle().Which.ErrorMessage.Should().Be(CoreFinanceMessages.BatchSizeExceeded);
+        repoMock.Verify(r => r.CreateAsync(It.IsAny<List<Account>>()), Times.Never);
+        repoMock.Verify(r => r.CreateAsync(It.IsAny<Account>(), It.IsAny<CancellationToken>()), Times.Never);
+        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
+        unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    ///     Verifies that CreateAsync (list version) accepts a valid batch of exactly the maximum size. (EN)<br />
+    ///     Xác minh rằng CreateAsync (phiên bản danh sách) chấp nhận lô hợp lệ đúng bằng kích thước tối đa. (VI)
+    /// </summary>
+    [Fact]
+    public async Task CreateAsync_List_ShouldCreateAllItems_WhenBatchHasExactlyMaxSize()
+    {
+        // Arrange
+        var batchSize = CoreFinanceMessages.MaxBatchSize;
+        var createRequests = Enumerable.Range(0, batchSize).Select(_ => ValidAccountRequest()).ToList();
+        var repoMock = new Mock<IBaseRepository<Account, Guid>>();
+        repoMock.Setup(r => r.CreateAsync(It.IsAny<List<Account>>())).ReturnsAsync(batchSize);
+        var transactionMock = new Mock<IDbContextTransaction>();
+        transactionMock.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
+        unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
+        var loggerMock = new Mock<ILogger<AccountService>>();
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+
+        // Act
+        var result = await service.CreateAsync(createRequests);
+
+        // Assert
+        result!.Should().HaveCount(batchSize);
+        repoMock.Verify(r => r.CreateAsync(It.Is<List<Account>>(list => list.Count == batchSize)), Times.Once);
+        transactionMock.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

@@ -60,7 +60,6 @@ public class CreateTransactionRequestValidatorTests
         var result = _validator.TestValidate(request);
 
         // Assert
-        result.ShouldNotHaveValidationErrorFor(x => x.Balance);
         result.IsValid.Should().BeTrue();
     }
 
@@ -146,13 +145,15 @@ public class CreateTransactionRequestValidatorTests
         else result.ShouldHaveValidationErrorFor(x => x.SpentAmount);
     }
 
+    public static IEnumerable<object[]> DefinedCategoryTypes =>
+        Enum.GetValues<CategoryType>().Select(categoryType => new object[] { categoryType });
+
     /// <summary>
     /// CategoryType accepts every defined value, including the zero value (EN)<br />
     /// CategoryType chấp nhận mọi giá trị đã định nghĩa, kể cả giá trị 0 (VI)
     /// </summary>
     [Theory]
-    [InlineData(CategoryType.Income)]
-    [InlineData(CategoryType.Expense)]
+    [MemberData(nameof(DefinedCategoryTypes))]
     public void Validator_Should_Accept_Defined_CategoryType(CategoryType categoryType)
     {
         // Arrange
