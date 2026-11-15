@@ -91,6 +91,7 @@ public class AdjustTransactionRequestValidatorTests
             .WithErrorCode(CoreFinanceErrorCodes.InvalidReason)
             .WithErrorMessage(CoreFinanceMessages.ReasonRequired);
         result.ShouldNotHaveValidationErrorFor(x => x.NewAmount);
+        result.Errors.Should().ContainSingle();
     }
 
     /// <summary>
@@ -111,6 +112,7 @@ public class AdjustTransactionRequestValidatorTests
         result.ShouldHaveValidationErrorFor(x => x.Reason)
             .WithErrorCode(CoreFinanceErrorCodes.InvalidReason)
             .WithErrorMessage(CoreFinanceMessages.ReasonRequired);
+        result.Errors.Should().ContainSingle();
     }
 
     /// <summary>

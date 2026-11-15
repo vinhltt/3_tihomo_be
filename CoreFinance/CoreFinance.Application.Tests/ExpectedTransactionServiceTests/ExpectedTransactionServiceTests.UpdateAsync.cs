@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq.Expressions;
 using CoreFinance.Application.DTOs.ExpectedTransaction;
 using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
@@ -743,5 +744,70 @@ public partial class ExpectedTransactionServiceTests
             .WithMessage(CoreFinanceMessages.RouteAndRequestIdsMustMatch);
         VerifyNoExpectedWrite(fixture);
         expected.Description.Should().Be("Electricity bill");
+    }
+
+    /// <summary>
+    ///     (EN) Format validation runs before the period is loaded, as it did before the shared validators: an invalid
+    ///     request for a missing period reports the validation failure and never opens a transaction or reads the
+    ///     repository.<br />
+    ///     (VI) Kiểm tra định dạng chạy trước khi tải kỳ, giữ nguyên như trước khi dùng validator dùng chung: request sai
+    ///     cho kỳ không tồn tại báo lỗi validation, không mở transaction và không đọc repository.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_ShouldRejectInvalidFormatBeforeLoadingPeriod_WhenPeriodIsMissing()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var request = new ExpectedTransactionUpdateRequest
+        {
+            Id = Id(1), ExpectedAmount = 0, AdjustmentReason = "New reading"
+        };
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(Id(1), request);
+
+        // Assert
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Should().ContainSingle(error => error.PropertyName == "ExpectedAmount");
+        fixture.UnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        fixture.ExpectedRepository.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(),
+            It.IsAny<Expression<Func<ExpectedTransaction, object>>[]>()), Times.Never);
+        VerifyNoExpectedWrite(fixture);
+    }
+
+    /// <summary>
+    ///     (EN) A missing or soft-deleted period is reported as not found before state-dependent rules: an amount change
+    ///     without a reason is only checked after the period loads, so it does not mask the 404 and nothing is written.<br />
+    ///     (VI) Kỳ không tồn tại hoặc đã xóa mềm được báo không tìm thấy trước các rule phụ thuộc trạng thái: đổi số tiền
+    ///     không kèm lý do chỉ được kiểm tra sau khi tải kỳ nên không che lỗi 404 và không ghi gì.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateAsync_ShouldThrowEntityNotFoundBeforeStateRules_WhenPeriodIsMissingOrSoftDeleted(
+        bool softDeleted)
+    {
+        // Arrange
+        var rows = new List<ExpectedTransaction>();
+        if (softDeleted)
+        {
+            var tombstone = Expected(1);
+            tombstone.IsDeleted = "20261008120000";
+            rows.Add(tombstone);
+        }
+
+        var fixture = CreateFixture(rows.ToArray());
+        var request = new ExpectedTransactionUpdateRequest { Id = Id(1), ExpectedAmount = 150m };
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(Id(1), request);
+
+        // Assert
+        await act.Should().ThrowAsync<EntityNotFoundException>()
+            .WithMessage(CoreFinanceMessages.ExpectedTransactionNotFound);
+        fixture.ExpectedRepository.Verify(r => r.GetByIdAsync(Id(1),
+            It.IsAny<Expression<Func<ExpectedTransaction, object>>[]>()), Times.Once);
+        VerifyNoExpectedWrite(fixture);
+        fixture.Transaction.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

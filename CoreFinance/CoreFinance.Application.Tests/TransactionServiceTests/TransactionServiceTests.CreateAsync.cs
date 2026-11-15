@@ -206,6 +206,7 @@ public partial class TransactionServiceTests
         // Assert
         (await act.Should().ThrowAsync<ValidationException>())
             .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
+        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
         repoMock.Verify(r => r.CreateAsync(It.IsAny<Transaction>(), It.IsAny<CancellationToken>()), Times.Never);
         unitOfWorkMock.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }

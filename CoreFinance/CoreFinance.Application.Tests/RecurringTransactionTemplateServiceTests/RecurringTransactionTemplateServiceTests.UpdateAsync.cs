@@ -180,11 +180,15 @@ public partial class RecurringTransactionTemplateServiceTests
     ///     (VI) Chỉnh sửa không hợp lệ bị từ chối trước mọi transaction, khóa, tra cứu hay ghi, và mẫu không bị đổi.
     /// </summary>
     [Theory]
-    [InlineData(0, null, null, nameof(RecurringTransactionTemplateUpdateRequest.Amount))]
-    [InlineData(null, 0, null, nameof(RecurringTransactionTemplateUpdateRequest.DaysInAdvance))]
-    [InlineData(null, null, 99, nameof(RecurringTransactionTemplateUpdateRequest.Frequency))]
+    [InlineData(0, null, null, null, null, nameof(RecurringTransactionTemplateUpdateRequest.Amount))]
+    [InlineData(null, 0, null, null, null, nameof(RecurringTransactionTemplateUpdateRequest.DaysInAdvance))]
+    [InlineData(null, 366, null, null, null, nameof(RecurringTransactionTemplateUpdateRequest.DaysInAdvance))]
+    [InlineData(null, null, 99, null, null, nameof(RecurringTransactionTemplateUpdateRequest.Frequency))]
+    [InlineData(null, null, null, 99, null, nameof(RecurringTransactionTemplateUpdateRequest.TransactionType))]
+    [InlineData(null, null, null, null, 0, nameof(RecurringTransactionTemplateUpdateRequest.CustomIntervalDays))]
     public async Task UpdateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenRequestIsInvalid(
-        int? amount, int? daysInAdvance, int? frequency, string invalidProperty)
+        int? amount, int? daysInAdvance, int? frequency, int? transactionType, int? customIntervalDays,
+        string invalidProperty)
     {
         // Arrange
         var template = NewTemplate(D(2026, 1, 1), daysInAdvance: 30);
@@ -194,7 +198,9 @@ public partial class RecurringTransactionTemplateServiceTests
             Id = template.Id,
             Amount = amount,
             DaysInAdvance = daysInAdvance,
-            Frequency = frequency.HasValue ? (RecurrenceFrequency)frequency.Value : null
+            Frequency = frequency.HasValue ? (RecurrenceFrequency)frequency.Value : null,
+            TransactionType = transactionType.HasValue ? (RecurringTransactionType)transactionType.Value : null,
+            CustomIntervalDays = customIntervalDays
         };
 
         // Act
@@ -207,6 +213,8 @@ public partial class RecurringTransactionTemplateServiceTests
         template.Amount.Should().Be(100m);
         template.DaysInAdvance.Should().Be(30);
         template.Frequency.Should().Be(RecurrenceFrequency.Monthly);
+        template.TransactionType.Should().Be(RecurringTransactionType.Expense);
+        template.CustomIntervalDays.Should().BeNull();
     }
 
     /// <summary>

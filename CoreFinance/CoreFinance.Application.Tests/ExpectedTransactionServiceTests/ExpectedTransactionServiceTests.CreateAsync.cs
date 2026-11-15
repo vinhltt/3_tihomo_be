@@ -617,7 +617,7 @@ public partial class ExpectedTransactionServiceTests
             Times.Once);
         fixture.TemplateRepository.Verify(
             r => r.GetNoTrackingEntities(It.IsAny<Expression<Func<RecurringTransactionTemplate, object>>[]>()),
-            Times.AtMostOnce);
+            Times.Once);
     }
 
     /// <summary>

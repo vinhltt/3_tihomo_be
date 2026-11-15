@@ -224,7 +224,7 @@ public partial class RecurringTransactionTemplateServiceTests
         var act = () => harness.Service().CreateAsync(request);
 
         (await act.Should().ThrowAsync<ValidationException>())
-            .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
+            .Which.Errors.Should().OnlyContain(error => error.PropertyName == invalidProperty);
         harness.UnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
         harness.UnitOfWork.Verify(u => u.AcquireOwnerResourceLockAsync(It.IsAny<string>(), It.IsAny<Guid>(),
             It.IsAny<CancellationToken>()), Times.Never);
