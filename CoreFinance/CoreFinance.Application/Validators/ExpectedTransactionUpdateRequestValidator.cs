@@ -16,7 +16,6 @@ public class ExpectedTransactionUpdateRequestValidator : AbstractValidator<Expec
     public ExpectedTransactionUpdateRequestValidator()
     {
         RuleFor(x => x.Id).NotEmpty();
-        RuleFor(x => x.ExpectedDate).NotEmpty().When(x => x.ExpectedDate.HasValue);
         RuleFor(x => x.ExpectedAmount).GreaterThan(0).When(x => x.ExpectedAmount.HasValue);
         RuleFor(x => x.Status).IsInEnum().When(x => x.Status.HasValue);
         RuleFor(x => x.Description).MaximumLength(500);

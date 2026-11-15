@@ -19,14 +19,5 @@ public class CreateAccountRequestValidator : AbstractValidator<AccountCreateRequ
         RuleFor(x => x.Type).IsInEnum();
         RuleFor(x => x.Currency).NotEmpty().MaximumLength(10);
         this.RuleForAccountCode(x => x.Code);
-
-        // TODO: Add uniqueness check in T012 when repository is implemented
-        // RuleFor(x => x.Code)
-        //     .MustAsync(async (code, cancellation) =>
-        //     {
-        //         var existing = await _accountRepository.GetByCodeAsync(code);
-        //         return existing == null;
-        //     })
-        //     .WithMessage("Account code already exists / Mã tài khoản đã tồn tại");
     }
 }
