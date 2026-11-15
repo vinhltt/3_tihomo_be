@@ -54,7 +54,7 @@ public partial class AccountServiceTests
 
         var loggerMock = new Mock<ILogger<AccountService>>();
 
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.GetAllDtoAsync();
@@ -91,7 +91,7 @@ public partial class AccountServiceTests
 
         var loggerMock = new Mock<ILogger<AccountService>>();
 
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.GetAllDtoAsync();

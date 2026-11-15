@@ -5,6 +5,7 @@ using CoreFinance.Application.Services.Base;
 using Shared.EntityFramework.DTOs;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.UnitOfWorks;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Shared.EntityFramework.BaseEfModels;
@@ -19,9 +20,11 @@ namespace CoreFinance.Application.Services;
 public class AccountService(
     IMapper mapper,
     IUnitOfWork unitOfWork,
-    ILogger<AccountService> logger)
+    ILogger<AccountService> logger,
+    IValidator<AccountCreateRequest> createValidator,
+    IValidator<AccountUpdateRequest> updateValidator)
     : BaseService<Account, AccountCreateRequest, AccountUpdateRequest, AccountViewModel, Guid>(mapper, unitOfWork,
-            logger),
+            logger, createValidator, updateValidator),
         IAccountService
 {
     private readonly IUnitOfWork _unitOfWork = unitOfWork;

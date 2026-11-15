@@ -4,6 +4,7 @@ using CoreFinance.Application.Interfaces;
 using System.Linq.Expressions;
 using CoreFinance.Application.Services;
 using CoreFinance.Application.Utilities;
+using CoreFinance.Application.Validators;
 using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
@@ -142,10 +143,14 @@ public partial class ExpectedTransactionServiceTests
             Transaction.Setup(t => t.DisposeAsync()).Returns(ValueTask.CompletedTask);
 
             transactionService ??= new TransactionService(mapper, UnitOfWork.Object,
-                new Mock<ILogger<TransactionService>>().Object);
+                new Mock<ILogger<TransactionService>>().Object, new CreateTransactionRequestValidator(),
+                new UpdateTransactionRequestValidator());
             Service = new ExpectedTransactionService(mapper, UnitOfWork.Object,
                 new Mock<ILogger<ExpectedTransactionService>>().Object, transactionService,
-                new BusinessCalendar(new FixedTimeProvider(utcNow ?? ClockInstant)));
+                new BusinessCalendar(new FixedTimeProvider(utcNow ?? ClockInstant)),
+                new ExpectedTransactionCreateRequestValidator(), new ExpectedTransactionUpdateRequestValidator(),
+                new ConfirmTransactionRequestValidator(), new CancelTransactionRequestValidator(),
+                new AdjustTransactionRequestValidator(), new RecordPaymentRequestValidator());
         }
 
         private void CaptureExpected(ExpectedTransaction entity)

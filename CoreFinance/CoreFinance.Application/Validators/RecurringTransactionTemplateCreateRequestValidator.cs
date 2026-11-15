@@ -18,7 +18,7 @@ public class
     public RecurringTransactionTemplateCreateRequestValidator()
     {
         RuleFor(x => x.AccountId).NotEmpty();
-        RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
         RuleFor(x => x.Amount).GreaterThan(0);
         RuleFor(x => x.StartDate).NotEmpty();
         RuleFor(x => x.Frequency).IsInEnum();

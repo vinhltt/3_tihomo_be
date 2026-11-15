@@ -7,6 +7,7 @@ using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
 using CoreFinance.Domain.UnitOfWorks;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -23,10 +24,12 @@ public class RecurringTransactionTemplateService(
     IUnitOfWork unitOfWork,
     ILogger<RecurringTransactionTemplateService> logger,
     BusinessCalendar businessCalendar,
-    IServiceScopeFactory serviceScopeFactory)
+    IServiceScopeFactory serviceScopeFactory,
+    IValidator<RecurringTransactionTemplateCreateRequest> createValidator,
+    IValidator<RecurringTransactionTemplateUpdateRequest> updateValidator)
     : BaseService<RecurringTransactionTemplate, RecurringTransactionTemplateCreateRequest,
             RecurringTransactionTemplateUpdateRequest, RecurringTransactionTemplateViewModel, Guid>(mapper, unitOfWork,
-            logger),
+            logger, createValidator, updateValidator),
         IRecurringTransactionTemplateService
 {
     // Lock namespace shared by template writers and generation; the resulting key must stay recurring:{owner}:{template}.
@@ -216,6 +219,8 @@ public class RecurringTransactionTemplateService(
     public override async Task<RecurringTransactionTemplateViewModel?> CreateAsync(
         RecurringTransactionTemplateCreateRequest request)
     {
+        ValidateCreate(request);
+
         await using var trans = await _unitOfWork.BeginTransactionAsync();
         try
         {
@@ -245,12 +250,13 @@ public class RecurringTransactionTemplateService(
     public override async Task<RecurringTransactionTemplateViewModel?> UpdateAsync(Guid id,
         RecurringTransactionTemplateUpdateRequest request)
     {
+        if (!id.Equals(request.Id))
+            throw new KeyNotFoundException();
+        ValidateUpdate(request);
+
         await using var trans = await _unitOfWork.BeginTransactionAsync();
         try
         {
-            if (!id.Equals(request.Id))
-                throw new KeyNotFoundException();
-
             await _unitOfWork.AcquireOwnerResourceLockAsync(TemplateLockResource, id);
             var template = await _unitOfWork.Repository<RecurringTransactionTemplate, Guid>().GetByIdAsync(id)
                            ?? throw new EntityNotFoundException(string.Format(CoreFinanceMessages.EntityNotFoundFormat, id));

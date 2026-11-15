@@ -32,7 +32,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetByIdNoTrackingAsync(accountId)).ReturnsAsync(account);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await accountService.GetByIdAsync(accountId);
@@ -60,7 +60,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetByIdAsync(accountId)).ReturnsAsync((Account?)null);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await accountService.GetByIdAsync(accountId);

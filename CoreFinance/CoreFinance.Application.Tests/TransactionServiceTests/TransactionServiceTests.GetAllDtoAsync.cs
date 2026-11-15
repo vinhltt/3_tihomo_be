@@ -41,7 +41,7 @@ public partial class TransactionServiceTests
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
 
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.GetAllDtoAsync();
@@ -73,7 +73,7 @@ public partial class TransactionServiceTests
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
 
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.GetAllDtoAsync();

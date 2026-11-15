@@ -245,7 +245,7 @@ public class AccountsWithApiKeyIntegrationTests : IClassFixture<WebApplicationFa
             Name = "", // Invalid: empty name
             Type = AccountType.Bank,
             Currency = "USD",
-            InitialBalance = -100 // Invalid: negative balance
+            InitialBalance = -100 // Accepted by the rules: only the empty name makes this request invalid
         };
 
         // Act

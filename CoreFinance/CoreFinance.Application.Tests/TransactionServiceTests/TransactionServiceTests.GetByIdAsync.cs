@@ -34,7 +34,7 @@ public partial class TransactionServiceTests
         repositoryMock.Setup(repo => repo.GetByIdNoTrackingAsync(transactionId,
             It.IsAny<Expression<Func<Transaction, object>>[]>())).ReturnsAsync(transaction);
 
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.GetByIdAsync(transactionId);
@@ -65,7 +65,7 @@ public partial class TransactionServiceTests
                 It.IsAny<Expression<Func<Transaction, object>>[]>()))
             .ReturnsAsync((Transaction?)null);
 
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.GetByIdAsync(transactionId);

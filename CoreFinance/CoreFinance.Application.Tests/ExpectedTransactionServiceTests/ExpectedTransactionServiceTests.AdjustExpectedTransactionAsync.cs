@@ -1,4 +1,5 @@
 using CoreFinance.Application.Enums;
+using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Enums;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -219,5 +220,179 @@ public partial class ExpectedTransactionServiceTests
         view.Status.Should().Be(ExpectedTransactionStatus.Pending);
         view.ActualTransactionId.Should().BeNull();
         fixture.CreatedActualTransactions.Should().BeEmpty();
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a successful adjustment reports the success code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: điều chỉnh thành công trả mã và message thành công.
+    /// </summary>
+    [Fact]
+    public async Task AdjustExpectedTransactionAsync_ShouldReturnSuccessCodeAndMessage_WhenAmountAndReasonAreValid()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, 120m, "Reading correction");
+
+        // Assert
+        result.Outcome.Should().Be(ExpectedTransactionActionOutcome.Success);
+        result.Code.Should().Be(CoreFinanceErrorCodes.Success);
+        result.Message.Should().Be(CoreFinanceMessages.ExpectedTransactionAdjusted);
+        result.ExpectedTransactionId.Should().Be(expected.Id);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: when both amount and reason are invalid, the amount error is reported first.<br />
+    ///     (VI) Đặc tả hiện trạng: khi cả số tiền và lý do đều sai, lỗi số tiền được trả trước.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AdjustExpectedTransactionAsync_ShouldReturnInvalidAmountFirst_WhenAmountAndReasonAreInvalid(
+        string reason)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, 0m, reason);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidAmount, CoreFinanceMessages.ExpectedAmountMustBePositive);
+    }
+
+    /// <summary>
+    ///     (EN) A non-positive amount on an otherwise adjustable pending period reports the invalid-amount code and message, writes nothing and keeps all amount history untouched.<br />
+    ///     (VI) Số tiền không dương trên kỳ chờ có thể điều chỉnh trả mã và message invalid_amount, không ghi gì và giữ nguyên lịch sử số tiền.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task AdjustExpectedTransactionAsync_ShouldNotWriteAnything_WhenAmountIsNotPositive(int amount)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, amount, "Reading correction");
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidAmount, CoreFinanceMessages.ExpectedAmountMustBePositive);
+        AssertNothingWritten(fixture);
+        AssertPeriodUnchanged(expected);
+    }
+
+    /// <summary>
+    ///     (EN) A null, empty, whitespace or 501-character reason on an otherwise adjustable pending period reports the invalid-reason code and message, writes nothing and keeps all amount history untouched.<br />
+    ///     (VI) Lý do null, rỗng, khoảng trắng hoặc 501 ký tự trên kỳ chờ có thể điều chỉnh trả mã và message invalid_reason, không ghi gì và giữ nguyên lịch sử số tiền.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(" \t ")]
+    [InlineData("501")]
+    public async Task AdjustExpectedTransactionAsync_ShouldNotWriteAnything_WhenReasonIsInvalid(string? reason)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var input = reason == "501" ? new string('r', 501) : reason;
+
+        // Act
+        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, 120m, input!);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.InvalidRequest,
+            CoreFinanceErrorCodes.InvalidReason, CoreFinanceMessages.ReasonRequired);
+        AssertNothingWritten(fixture);
+        AssertPeriodUnchanged(expected);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: an unknown or soft-deleted period reports not-found even when amount and reason are invalid.<br />
+    ///     (VI) Đặc tả hiện trạng: kỳ không tồn tại hoặc xóa mềm trả not_found kể cả khi số tiền và lý do đều sai.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AdjustExpectedTransactionAsync_ShouldReturnNotFoundCodeAndMessage_WhenPeriodIsMissingAndInputIsInvalid(
+        bool softDeleted)
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        if (softDeleted)
+        {
+            var tombstone = Expected(1);
+            tombstone.IsDeleted = "20261008090000";
+            fixture.ExpectedTransactions.Add(tombstone);
+        }
+
+        // Act
+        var result = await fixture.Service.AdjustExpectedTransactionAsync(Id(1), 0m, "");
+
+        // Assert
+        AssertActionFailure(result, Id(1), ExpectedTransactionActionOutcome.NotFound,
+            CoreFinanceErrorCodes.ExpectedTransactionNotFound, CoreFinanceMessages.ExpectedTransactionNotFound);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: a non-pending or linked period reports the state-conflict code and message, even when the input is invalid.<br />
+    ///     (VI) Đặc tả hiện trạng: kỳ không ở trạng thái chờ hoặc đã liên kết trả mã và message state_conflict, kể cả khi đầu vào sai.
+    /// </summary>
+    [Theory]
+    [InlineData(ExpectedTransactionStatus.Confirmed, 120, "Reading correction")]
+    [InlineData(ExpectedTransactionStatus.Cancelled, 0, "Reading correction")]
+    [InlineData(ExpectedTransactionStatus.Completed, 120, "")]
+    [InlineData(ExpectedTransactionStatus.Pending, -1, "")]
+    public async Task AdjustExpectedTransactionAsync_ShouldReturnStateConflictCodeAndMessage_WhenPeriodIsNotAvailable(
+        ExpectedTransactionStatus status, int amount, string reason)
+    {
+        // Arrange
+        var expected = Expected(1, status: status);
+        if (status == ExpectedTransactionStatus.Pending) expected.ActualTransactionId = ActualId;
+        var fixture = CreateFixture(expected);
+
+        // Act
+        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, amount, reason);
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.Conflict,
+            CoreFinanceErrorCodes.StateConflict, CoreFinanceMessages.PendingTransactionRequired);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: write or commit failures report the persistence code and message.<br />
+    ///     (VI) Đặc tả hiện trạng: lỗi ghi hoặc commit trả mã và message lỗi lưu trữ.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AdjustExpectedTransactionAsync_ShouldReturnPersistenceCodeAndMessage_WhenWriteOrCommitFails(
+        bool commit)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        if (commit)
+            fixture.Transaction.Setup(t => t.CommitAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new InvalidOperationException("Commit failed"));
+        else
+            fixture.UnitOfWork.Setup(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new DbUpdateException("Write failed"));
+
+        // Act
+        var result = await fixture.Service.AdjustExpectedTransactionAsync(expected.Id, 120m, "Reading correction");
+
+        // Assert
+        AssertActionFailure(result, expected.Id, ExpectedTransactionActionOutcome.PersistenceError,
+            CoreFinanceErrorCodes.PersistenceError, CoreFinanceMessages.OperationCouldNotBeSaved);
+        fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 }

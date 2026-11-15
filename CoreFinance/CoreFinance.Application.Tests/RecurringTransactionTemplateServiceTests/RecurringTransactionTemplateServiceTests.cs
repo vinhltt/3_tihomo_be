@@ -3,6 +3,7 @@ using AutoMapper;
 using CoreFinance.Application.Services;
 using CoreFinance.Application.Tests.Helpers;
 using CoreFinance.Application.Utilities;
+using CoreFinance.Application.Validators;
 using CoreFinance.Domain.BaseRepositories;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.Enums;
@@ -64,7 +65,9 @@ public partial class RecurringTransactionTemplateServiceTests
         return new RecurringTransactionTemplateService(TestHelpers.CreateMapper(), unitOfWork,
             logger ?? new Mock<ILogger<RecurringTransactionTemplateService>>().Object,
             FixedCalendar(today ?? Today),
-            scopeFactory ?? new Mock<IServiceScopeFactory>().Object);
+            scopeFactory ?? new Mock<IServiceScopeFactory>().Object,
+            new RecurringTransactionTemplateCreateRequestValidator(),
+            new RecurringTransactionTemplateUpdateRequestValidator());
     }
 
     /// <summary>

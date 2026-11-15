@@ -50,7 +50,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await accountService.GetByCodeAsync(testCode);
@@ -81,7 +81,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await accountService.GetByCodeAsync(nonExistentCode);
@@ -121,7 +121,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act - Try uppercase code
         var result = await accountService.GetByCodeAsync("TECHCOMBANK_DEBIT");
@@ -161,7 +161,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await accountService.GetByCodeAsync(testCode);
@@ -214,7 +214,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await accountService.GetByCodeAsync(testCode);
@@ -244,7 +244,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await accountService.GetByCodeAsync(code!);
@@ -288,7 +288,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(uow => uow.Repository<Account, Guid>()).Returns(repositoryMock.Object);
         repositoryMock.Setup(repo => repo.GetNoTrackingEntities()).Returns(accounts);
 
-        var accountService = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var accountService = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await accountService.GetByCodeAsync(code);

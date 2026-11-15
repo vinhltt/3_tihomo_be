@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Linq.Expressions;
 using CoreFinance.Application.DTOs.ExpectedTransaction;
 using CoreFinance.Domain.Constants;
 using CoreFinance.Domain.Entities;
@@ -635,5 +637,177 @@ public partial class ExpectedTransactionServiceTests
         fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
         fixture.Transaction.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Once);
         fixture.Transaction.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static void VerifyNoExpectedWrite(ServiceFixture fixture)
+    {
+        fixture.ExpectedRepository.Verify(r => r.UpdateAsync(It.IsAny<ExpectedTransaction>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        fixture.UnitOfWork.Verify(u => u.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: an invalid update request reports the first validator failure and writes nothing.<br />
+    ///     (VI) Đặc tả hiện trạng: request cập nhật sai trả lỗi validator đầu tiên và không ghi gì.
+    /// </summary>
+    // The default-message literals below were captured under en-US from FluentValidation 12.0.0.
+    [Theory]
+    [InlineData("zeroAmount", "ExpectedAmount", "'Expected Amount' must be greater than '0'.")]
+    [InlineData("overlongReason", "AdjustmentReason", "The length of 'Adjustment Reason' must be 500 characters or fewer. You entered 501 characters.")]
+    [InlineData("overlongDescription", "Description", "The length of 'Description' must be 500 characters or fewer. You entered 501 characters.")]
+    [InlineData("undefinedStatus", "Status", "'Status' has a range of values which does not include '99'.")]
+    public async Task UpdateAsync_ShouldReportFirstValidatorMessageWithoutWriting_WhenRequestIsInvalid(
+        string kind, string propertyName, string message)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var request = new ExpectedTransactionUpdateRequest { Id = expected.Id };
+        switch (kind)
+        {
+            case "zeroAmount": request.ExpectedAmount = 0; request.AdjustmentReason = "New reading"; break;
+            case "overlongReason": request.ExpectedAmount = 120m; request.AdjustmentReason = new string('r', 501); break;
+            case "overlongDescription": request.Description = new string('d', 501); break;
+            case "undefinedStatus": request.Status = (ExpectedTransactionStatus)99; break;
+            default: throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
+        }
+
+        var previousCulture = CultureInfo.CurrentUICulture;
+        CultureInfo.CurrentUICulture = new CultureInfo("en-US");
+
+        try
+        {
+            // Act
+            Func<Task> act = () => fixture.Service.UpdateAsync(expected.Id, request);
+
+            // Assert
+            var failure = (await act.Should().ThrowAsync<ValidationException>()).Which;
+            failure.Errors.First().PropertyName.Should().Be(propertyName);
+            failure.Errors.First().ErrorMessage.Should().Be(message);
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = previousCulture;
+        }
+
+        VerifyNoExpectedWrite(fixture);
+        expected.ExpectedAmount.Should().Be(100m);
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: an amount change without a valid reason reports the amount-change message and writes nothing.<br />
+    ///     (VI) Đặc tả hiện trạng: đổi số tiền không có lý do hợp lệ trả message yêu cầu lý do và không ghi gì.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \t ")]
+    public async Task UpdateAsync_ShouldReportAmountChangeReasonMessageWithoutWriting_WhenReasonIsMissing(
+        string? reason)
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var request = new ExpectedTransactionUpdateRequest
+        {
+            Id = expected.Id, ExpectedAmount = 120m, AdjustmentReason = reason
+        };
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(expected.Id, request);
+
+        // Assert
+        await act.Should().ThrowAsync<ValidationException>()
+            .WithMessage(CoreFinanceMessages.AmountChangeReasonRequired);
+        VerifyNoExpectedWrite(fixture);
+        expected.ExpectedAmount.Should().Be(100m);
+        expected.IsAdjusted.Should().BeFalse();
+    }
+
+    /// <summary>
+    ///     (EN) Characterization: mismatched route and body IDs report the route-and-request message and write nothing.<br />
+    ///     (VI) Đặc tả hiện trạng: ID route và body không khớp trả message tương ứng và không ghi gì.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_ShouldReportRouteAndRequestIdsMessageWithoutWriting_WhenIdsDiffer()
+    {
+        // Arrange
+        var expected = Expected(1);
+        var fixture = CreateFixture(expected);
+        var request = new ExpectedTransactionUpdateRequest { Id = Id(2), Description = "Changed" };
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(expected.Id, request);
+
+        // Assert
+        await act.Should().ThrowAsync<KeyNotFoundException>()
+            .WithMessage(CoreFinanceMessages.RouteAndRequestIdsMustMatch);
+        VerifyNoExpectedWrite(fixture);
+        expected.Description.Should().Be("Electricity bill");
+    }
+
+    /// <summary>
+    ///     (EN) Format validation runs before the period is loaded, as it did before the shared validators: an invalid
+    ///     request for a missing period reports the validation failure and never opens a transaction or reads the
+    ///     repository.<br />
+    ///     (VI) Kiểm tra định dạng chạy trước khi tải kỳ, giữ nguyên như trước khi dùng validator dùng chung: request sai
+    ///     cho kỳ không tồn tại báo lỗi validation, không mở transaction và không đọc repository.
+    /// </summary>
+    [Fact]
+    public async Task UpdateAsync_ShouldRejectInvalidFormatBeforeLoadingPeriod_WhenPeriodIsMissing()
+    {
+        // Arrange
+        var fixture = CreateFixture();
+        var request = new ExpectedTransactionUpdateRequest
+        {
+            Id = Id(1), ExpectedAmount = 0, AdjustmentReason = "New reading"
+        };
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(Id(1), request);
+
+        // Assert
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Should().ContainSingle(error => error.PropertyName == "ExpectedAmount");
+        fixture.UnitOfWork.Verify(u => u.BeginTransactionAsync(It.IsAny<CancellationToken>()), Times.Never);
+        fixture.ExpectedRepository.Verify(r => r.GetByIdAsync(It.IsAny<Guid>(),
+            It.IsAny<Expression<Func<ExpectedTransaction, object>>[]>()), Times.Never);
+        VerifyNoExpectedWrite(fixture);
+    }
+
+    /// <summary>
+    ///     (EN) A missing or soft-deleted period is reported as not found before state-dependent rules: an amount change
+    ///     without a reason is only checked after the period loads, so it does not mask the 404 and nothing is written.<br />
+    ///     (VI) Kỳ không tồn tại hoặc đã xóa mềm được báo không tìm thấy trước các rule phụ thuộc trạng thái: đổi số tiền
+    ///     không kèm lý do chỉ được kiểm tra sau khi tải kỳ nên không che lỗi 404 và không ghi gì.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateAsync_ShouldThrowEntityNotFoundBeforeStateRules_WhenPeriodIsMissingOrSoftDeleted(
+        bool softDeleted)
+    {
+        // Arrange
+        var rows = new List<ExpectedTransaction>();
+        if (softDeleted)
+        {
+            var tombstone = Expected(1);
+            tombstone.IsDeleted = "20261008120000";
+            rows.Add(tombstone);
+        }
+
+        var fixture = CreateFixture(rows.ToArray());
+        var request = new ExpectedTransactionUpdateRequest { Id = Id(1), ExpectedAmount = 150m };
+
+        // Act
+        Func<Task> act = () => fixture.Service.UpdateAsync(Id(1), request);
+
+        // Assert
+        await act.Should().ThrowAsync<EntityNotFoundException>()
+            .WithMessage(CoreFinanceMessages.ExpectedTransactionNotFound);
+        fixture.ExpectedRepository.Verify(r => r.GetByIdAsync(Id(1),
+            It.IsAny<Expression<Func<ExpectedTransaction, object>>[]>()), Times.Once);
+        VerifyNoExpectedWrite(fixture);
+        fixture.Transaction.Verify(t => t.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 }

@@ -1,5 +1,9 @@
 using AutoMapper;
+using CoreFinance.Application.Services;
 using CoreFinance.Application.Tests.Helpers;
+using CoreFinance.Application.Validators;
+using CoreFinance.Domain.UnitOfWorks;
+using Microsoft.Extensions.Logging;
 
 namespace CoreFinance.Application.Tests.TransactionServiceTests;
 
@@ -12,4 +16,15 @@ namespace CoreFinance.Application.Tests.TransactionServiceTests;
 public partial class TransactionServiceTests
 {
     private readonly IMapper _mapper = TestHelpers.CreateMapper();
+
+    /// <summary>
+    ///     Builds a <see cref="TransactionService" /> wired with the real create and update validators. (EN)<br />
+    ///     Dựng <see cref="TransactionService" /> với validator tạo và cập nhật thật. (VI)
+    /// </summary>
+    private static TransactionService CreateService(IMapper mapper, IUnitOfWork unitOfWork,
+        ILogger<TransactionService> logger)
+    {
+        return new TransactionService(mapper, unitOfWork, logger, new CreateTransactionRequestValidator(),
+            new UpdateTransactionRequestValidator());
+    }
 }

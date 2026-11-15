@@ -22,7 +22,7 @@ public partial class AccountServiceTests
         repoMock.Setup(r => r.GetNoTrackingEntities()).Returns(mock);
         var uow = new Mock<IUnitOfWork>();
         uow.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
-        return new AccountService(TestHelpers.CreateMapper(), uow.Object, new Mock<ILogger<AccountService>>().Object);
+        return CreateService(TestHelpers.CreateMapper(), uow.Object, new Mock<ILogger<AccountService>>().Object);
     }
 
     private static Account Make(string n) => new Account { Id = Guid.CreateVersion7(), Name = n };

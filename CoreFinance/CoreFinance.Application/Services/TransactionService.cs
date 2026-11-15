@@ -5,6 +5,7 @@ using CoreFinance.Application.Services.Base;
 using Shared.EntityFramework.DTOs;
 using CoreFinance.Domain.Entities;
 using CoreFinance.Domain.UnitOfWorks;
+using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Shared.EntityFramework.BaseEfModels;
@@ -19,9 +20,11 @@ namespace CoreFinance.Application.Services;
 public class TransactionService(
     IMapper mapper,
     IUnitOfWork unitOfWork,
-    ILogger<TransactionService> logger)
+    ILogger<TransactionService> logger,
+    IValidator<TransactionCreateRequest> createValidator,
+    IValidator<TransactionUpdateRequest> updateValidator)
     : BaseService<Transaction, TransactionCreateRequest, TransactionUpdateRequest, TransactionViewModel, Guid>(mapper,
-            unitOfWork, logger),
+            unitOfWork, logger, createValidator, updateValidator),
         ITransactionService
 {
     private readonly IUnitOfWork _unitOfWork = unitOfWork;
@@ -65,6 +68,8 @@ public class TransactionService(
     /// <returns>The created transaction view model.</returns>
     public override async Task<TransactionViewModel?> CreateAsync(TransactionCreateRequest request)
     {
+        ValidateCreate(request);
+
         //var calculatedBalance = await CalculateBalanceForTransactionAsync(
         //    request.AccountId,
         //    request.TransactionDate,

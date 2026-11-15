@@ -64,7 +64,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         var result = await service.UpdateAsync(accountId, updateRequest);
@@ -109,7 +109,7 @@ public partial class AccountServiceTests
 
         var loggerMock = new Mock<ILogger<AccountService>>();
 
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.UpdateAsync(accountId, requestWithDifferentId);
@@ -134,6 +134,9 @@ public partial class AccountServiceTests
         var accountId = Guid.CreateVersion7();
         var updateRequest = new Faker<AccountUpdateRequest>()
             .RuleFor(r => r.Id, accountId)
+            .RuleFor(r => r.Name, f => f.Finance.AccountName())
+            .RuleFor(r => r.Type, nameof(AccountType.Bank))
+            .RuleFor(r => r.Currency, "USD")
             .Generate();
 
         var repoMock = new Mock<IBaseRepository<Account, Guid>>();
@@ -143,7 +146,7 @@ public partial class AccountServiceTests
         var unitOfWorkMock = new Mock<IUnitOfWork>();
         unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.UpdateAsync(accountId, updateRequest);
@@ -169,6 +172,8 @@ public partial class AccountServiceTests
         var updateRequest = new Faker<AccountUpdateRequest>()
             .RuleFor(r => r.Id, accountId)
             .RuleFor(r => r.Name, f => f.Finance.AccountName())
+            .RuleFor(r => r.Type, nameof(AccountType.Bank))
+            .RuleFor(r => r.Currency, "USD")
             .Generate();
 
         var existingAccount = new Faker<Account>()
@@ -190,7 +195,7 @@ public partial class AccountServiceTests
         unitOfWorkMock.Setup(u => u.BeginTransactionAsync()).ReturnsAsync(transactionMock.Object);
 
         var loggerMock = new Mock<ILogger<AccountService>>();
-        var service = new AccountService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         // Act
         Func<Task> act = async () => await service.UpdateAsync(accountId, updateRequest);
@@ -205,5 +210,40 @@ public partial class AccountServiceTests
         unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Once);
         transactionMock.Verify(t => t.RollbackAsync(It.IsAny<CancellationToken>()), Times.Once);
         transactionMock.Verify(t => t.DisposeAsync(), Times.Once);
+    }
+
+    /// <summary>
+    ///     Verifies that UpdateAsync rejects an invalid request before opening a transaction, reading the entity or
+    ///     writing to the repository. (EN)<br />
+    ///     Xác minh rằng UpdateAsync từ chối yêu cầu không hợp lệ trước khi mở giao dịch, đọc thực thể hoặc ghi vào
+    ///     repository. (VI)
+    /// </summary>
+    [Theory]
+    [InlineData("", "Bank", "USD", nameof(AccountUpdateRequest.Name))]
+    [InlineData("Wallet", "NotAnAccountType", "USD", nameof(AccountUpdateRequest.Type))]
+    [InlineData("Wallet", null, "USD", nameof(AccountUpdateRequest.Type))]
+    [InlineData("Wallet", "", "USD", nameof(AccountUpdateRequest.Type))]
+    [InlineData("Wallet", "Bank", "", nameof(AccountUpdateRequest.Currency))]
+    public async Task UpdateAsync_ShouldThrowValidationExceptionWithoutWriting_WhenRequestIsInvalid(
+        string name, string? type, string currency, string invalidProperty)
+    {
+        // Arrange
+        var accountId = Guid.CreateVersion7();
+        var updateRequest = new AccountUpdateRequest { Id = accountId, Name = name, Type = type, Currency = currency };
+        var repoMock = new Mock<IBaseRepository<Account, Guid>>();
+        var unitOfWorkMock = new Mock<IUnitOfWork>();
+        unitOfWorkMock.Setup(u => u.Repository<Account, Guid>()).Returns(repoMock.Object);
+        var loggerMock = new Mock<ILogger<AccountService>>();
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+
+        // Act
+        Func<Task> act = async () => await service.UpdateAsync(accountId, updateRequest);
+
+        // Assert
+        (await act.Should().ThrowAsync<FluentValidation.ValidationException>())
+            .Which.Errors.Should().Contain(error => error.PropertyName == invalidProperty);
+        unitOfWorkMock.Verify(u => u.BeginTransactionAsync(), Times.Never);
+        repoMock.Verify(r => r.GetByIdAsync(It.IsAny<Guid>()), Times.Never);
+        repoMock.Verify(r => r.UpdateAsync(It.IsAny<Account>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 }

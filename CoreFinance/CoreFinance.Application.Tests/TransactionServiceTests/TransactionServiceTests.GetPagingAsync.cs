@@ -44,7 +44,7 @@ public partial class TransactionServiceTests
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
 
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -94,7 +94,7 @@ public partial class TransactionServiceTests
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
 
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -138,7 +138,7 @@ public partial class TransactionServiceTests
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
 
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -182,7 +182,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -227,7 +227,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -263,7 +263,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -309,7 +309,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -355,7 +355,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
@@ -394,7 +394,7 @@ public partial class TransactionServiceTests
         unitOfWorkMock.Setup(u => u.Repository<Transaction, Guid>()).Returns(repoMock.Object);
 
         var loggerMock = new Mock<ILogger<TransactionService>>();
-        var service = new TransactionService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
+        var service = CreateService(_mapper, unitOfWorkMock.Object, loggerMock.Object);
 
         var request = new FilterBodyRequest
         {
